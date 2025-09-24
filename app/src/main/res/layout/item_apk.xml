@@ -67,7 +67,7 @@
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_install"
-            style="@style/Widget.MaterialComponents.Button.FilledTonalButton"
+            style="@style/Widget.MaterialComponents.Button"
             android:layout_width="0dp"
             android:layout_height="48dp"
             android:layout_weight="1"
