@@ -5,11 +5,36 @@
     android:layout_height="match_parent"
     android:padding="16dp">
 
+    <com.google.android.material.tabs.TabLayout
+        android:id="@+id/tab_layout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content" />
+
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/recycler"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
         android:paddingTop="8dp" />
+
+    <ScrollView
+        android:id="@+id/log_container"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:visibility="gone"
+        android:paddingTop="8dp">
+
+        <TextView
+            android:id="@+id/log_view"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:textColor="#333333"
+            android:lineSpacingExtra="2dp"
+            android:typeface="monospace"
+            android:textIsSelectable="true"
+            android:text="" />
+    </ScrollView>
 
 </LinearLayout>

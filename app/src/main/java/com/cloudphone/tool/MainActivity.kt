@@ -19,6 +19,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import com.google.android.material.tabs.TabLayout
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -47,28 +48,80 @@ class MainActivity : AppCompatActivity() {
     private lateinit var adapter: ApkAdapter
     private val items = mutableListOf<ApkItem>()
     private val preloadedIds = mutableSetOf<String>()
+    private lateinit var tabLayout: TabLayout
+    private lateinit var logContainer: View
+    private lateinit var logView: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
         listView = findViewById(R.id.recycler)
+        tabLayout = findViewById(R.id.tab_layout)
+        logContainer = findViewById(R.id.log_container)
+        logView = findViewById(R.id.log_view)
+
         adapter = ApkAdapter(items, preloadedIds,
             onInstall = { item -> onInstallClicked(item) },
             onDelete = { item ->
                 items.removeAll { it.id == item.id }
                 saveItems()
                 adapter.notifyDataSetChanged()
+                log("Đã xóa mục: ${item.name}")
             }
         )
         listView.layoutManager = LinearLayoutManager(this)
         listView.addItemDecoration(DividerItemDecoration(this, DividerItemDecoration.VERTICAL))
         listView.adapter = adapter
 
+        setupTabs()
+
         loadItems()
         mergePreloadedApps()
         updateCachedVersions()
         adapter.notifyDataSetChanged()
+        log("Khởi động xong. Tổng mục: ${items.size}")
+    }
+
+    private fun setupTabs() {
+        tabLayout.addTab(tabLayout.newTab().setText("Ứng dụng"))
+        tabLayout.addTab(tabLayout.newTab().setText("Log"))
+        showAppsTab()
+        tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
+            override fun onTabSelected(tab: TabLayout.Tab) {
+                if (tab.position == 0) showAppsTab() else showLogTab()
+            }
+            override fun onTabUnselected(tab: TabLayout.Tab?) {}
+            override fun onTabReselected(tab: TabLayout.Tab) {
+                if (tab.position == 1) scrollLogToBottom()
+            }
+        })
+    }
+
+    private fun showAppsTab() {
+        listView.visibility = View.VISIBLE
+        logContainer.visibility = View.GONE
+    }
+
+    private fun showLogTab() {
+        listView.visibility = View.GONE
+        logContainer.visibility = View.VISIBLE
+        scrollLogToBottom()
+    }
+
+    private fun log(msg: String) {
+        val ts = java.text.SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+        logView.append("[$ts] $msg\n")
+        scrollLogToBottom()
+    }
+
+    private fun logBg(msg: String) = runOnUiThread { log(msg) }
+
+    private fun scrollLogToBottom() {
+        val parent = logView.parent
+        if (parent is ScrollView) {
+            parent.post { parent.fullScroll(View.FOCUS_DOWN) }
+        }
     }
 
     private fun mergePreloadedApps() {
@@ -83,7 +136,14 @@ class MainActivity : AppCompatActivity() {
                 if (idx >= 0) {
                     // Cập nhật tên/url nếu khác
                     val exist = items[idx]
-                    items[idx] = exist.copy(name = p.name, sourceType = SourceType.URL, url = normalized, uri = null)
+                    items[idx] = exist.copy(
+                        name = p.name,
+                        sourceType = SourceType.URL,
+                        url = normalized,
+                        uri = null,
+                        versionName = exist.versionName ?: p.versionName,
+                        versionCode = exist.versionCode ?: p.versionCode
+                    )
                 } else {
                     items.add(
                         ApkItem(
@@ -91,13 +151,17 @@ class MainActivity : AppCompatActivity() {
                             name = p.name,
                             sourceType = SourceType.URL,
                             url = normalized,
-                            uri = null
+                            uri = null,
+                            versionName = p.versionName,
+                            versionCode = p.versionCode
                         )
                     )
                 }
+                log("Preload: ${p.name} -> ${normalized}")
             }
         } catch (_: Exception) {
             // bỏ qua nếu không có raw hoặc lỗi parse
+            log("Không thể nạp danh sách preload từ raw/preload_apps.json")
         }
     }
 
@@ -109,9 +173,11 @@ class MainActivity : AppCompatActivity() {
             if (pi != null) {
                 val name = pi.versionName
                 val code = if (Build.VERSION.SDK_INT >= 28) pi.longVersionCode else pi.versionCode.toLong()
+                log("Đọc phiên bản từ APK: v=$name (code $code)")
                 name to code
             } else null to null
         } catch (_: Exception) {
+            log("Không đọc được phiên bản từ APK")
             null to null
         }
     }
@@ -134,8 +200,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    
-
     private fun onInstallClicked(item: ApkItem) {
         lifecycleScope.launch {
             try {
@@ -145,6 +209,13 @@ class MainActivity : AppCompatActivity() {
                 }
                 if (apkFile == null) {
                     toast("Không thể chuẩn bị tệp APK")
+                    log("Lỗi: Không thể chuẩn bị tệp APK cho ${item.name}")
+                    return@launch
+                }
+
+                if (!isLikelyApk(apkFile)) {
+                    log("Tệp tải về không phải APK (size=${apkFile.length()}B). Có thể là trang HTML xác nhận của Google Drive.")
+                    toast("Tệp tải về không phải APK. Kiểm tra lại link tải.")
                     return@launch
                 }
 
@@ -156,22 +227,28 @@ class MainActivity : AppCompatActivity() {
                     items[idx] = cur.copy(versionName = vName, versionCode = vCode)
                     saveItems()
                     adapter.notifyItemChanged(idx)
+                    log("Cập nhật phiên bản hiển thị cho ${cur.name}: v=${vName ?: "?"} code=${vCode ?: -1}")
                 }
 
                 val rooted = RootInstaller.isDeviceRooted()
+                log("Thiết bị root: $rooted. Bắt đầu cài đặt ${item.name}")
                 if (rooted) {
                     val (ok, msg) = withContext(Dispatchers.IO) { RootInstaller.installApkWithRoot(apkFile) }
                     if (ok) {
                         toast("Cài đặt (root) thành công")
+                        log("Cài đặt (root) thành công. pm output: $msg")
                     } else {
                         toast("Cài đặt (root) thất bại: $msg. Thử cách thường…")
+                        log("Cài đặt (root) thất bại: $msg. Thử cách thường…")
                         installNormally(apkFile)
                     }
                 } else {
+                    log("Mở trình cài đặt thường (FileProvider)")
                     installNormally(apkFile)
                 }
             } catch (e: Exception) {
                 toast("Lỗi: ${e.message}")
+                log("Lỗi: ${e.message}")
             }
         }
     }
@@ -207,12 +284,14 @@ class MainActivity : AppCompatActivity() {
 
     private suspend fun downloadApk(item: ApkItem): File? = withContext(Dispatchers.IO) {
         val url = item.url ?: return@withContext null
+        logBg("Bắt đầu tải: ${item.name} từ $url")
         val req = Request.Builder()
             .url(url)
             .header("User-Agent", "Mozilla/5.0 (Android) CloudPhoneTool/1.0")
             .build()
         client.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) {
+                logBg("Tải thất bại: HTTP ${'$'}{resp.code}")
                 throw IllegalStateException("HTTP ${'$'}{resp.code}")
             }
             val dir = File(cacheDir, "apks").apply { mkdirs() }
@@ -222,6 +301,7 @@ class MainActivity : AppCompatActivity() {
                     copyStreamWithProgress(input, out)
                 }
             }
+            logBg("Đã tải xong: ${outFile.absolutePath} (${outFile.length()} B), content-type=${resp.header("Content-Type")}")
             outFile
         }
     }
@@ -442,7 +522,9 @@ enum class SourceType { URL, LOCAL }
 
 data class PreloadApp(
     val name: String,
-    val url: String
+    val url: String,
+    val versionName: String? = null,
+    val versionCode: Long? = null
 )
 
 class ApkAdapter(
