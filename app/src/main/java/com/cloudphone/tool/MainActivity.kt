@@ -234,9 +234,9 @@ class MainActivity : AppCompatActivity() {
                     return@withContext null
                 }
                 val body = resp.body?.string() ?: return@withContext null
-                val type = object : com.google.gson.reflect.TypeToken<List<PreloadApp>>() {}.type
-                val list: List<PreloadApp> = Gson().fromJson(body, type)
-                list
+                // Tránh dùng TypeToken để không phụ thuộc generic signature khi minify
+                val arr: Array<PreloadApp> = Gson().fromJson(body, Array<PreloadApp>::class.java)
+                arr.toList()
             }
         } catch (e: Exception) {
             logBg("Lỗi tải nguồn online: ${e.message}")
