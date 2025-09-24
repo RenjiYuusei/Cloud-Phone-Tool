@@ -1,6 +1,5 @@
 package com.cloudphone.tool
 
-import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -29,7 +28,6 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
 import java.io.InputStreamReader
-import android.content.pm.PackageManager
 import java.security.MessageDigest
 import java.util.*
 import java.util.concurrent.TimeUnit
@@ -471,8 +469,8 @@ class ApkAdapter(
         val it = data[position]
         holder.name.text = it.name
         holder.src.text = when (it.sourceType) {
-            SourceType.URL -> it.url
-            SourceType.LOCAL -> it.uri
+            SourceType.URL -> it.url ?: ""
+            SourceType.LOCAL -> it.uri ?: ""
         }
         holder.version.text = "Phiên bản: ${it.versionName ?: "(chưa rõ)"}${it.versionCode?.let { c -> " (code $c)" } ?: ""}"
         holder.btnInstall.setOnClickListener { _ -> onInstall(it) }
