@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Cloud Phone Tool</string>
+    <string name="add_from_file">Thêm từ tệp APK</string>
+    <string name="add_from_link">Thêm từ link</string>
+    <string name="install">Cài đặt</string>
+    <string name="delete">Xóa</string>
+</resources>
