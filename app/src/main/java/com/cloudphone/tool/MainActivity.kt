@@ -427,8 +427,8 @@ data class ApkItem(
                 val idx = p.indexOf(":")
                 if (idx > 0) {
                     val key = p.substring(0, idx).trim().removeSurrounding("\"", "\"")
-                    var value = p.substring(idx + 1).trim()
-                    value = if (value == "null") null else value.removeSurrounding("\"", "\"")
+                    var valueStr = p.substring(idx + 1).trim()
+                    var value: String? = if (valueStr == "null") null else valueStr.removeSurrounding("\"", "\"")
                     if (value != null) value = value.replace("\\\"", "\"").replace("\\\\", "\\")
                     map[key] = value
                 }
