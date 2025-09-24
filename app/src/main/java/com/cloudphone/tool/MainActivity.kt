@@ -205,6 +205,22 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // Ghi log thông tin hệ thống và môi trường root để hỗ trợ chẩn đoán
+    private fun logEnvForDebug(stage: String) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val env = RootInstaller.probeRootEnv()
+            val androidRelease = try { Build.VERSION.RELEASE } catch (_: Exception) { "?" }
+            val rom = try { Build.DISPLAY } catch (_: Exception) { Build.ID }
+            val device = "${Build.MANUFACTURER} ${Build.MODEL}".trim()
+            val lines = listOf(
+                "ENV/$stage: Android $androidRelease (SDK ${Build.VERSION.SDK_INT}), ROM=$rom, Device=$device",
+                "ENV/$stage: Root provider=${env.provider}, suPath=${env.suPath ?: "-"}, suVer=${env.suVersion ?: "-"}, uid0=${env.uid0}",
+                "ENV/$stage: Magisk=${env.magiskVersionName ?: "-"} (code=${env.magiskVersionCode ?: "-"}), KernelSU=${env.kernelSuVersion ?: "-"}"
+            )
+            withContext(Dispatchers.Main) { lines.forEach { log(it) } }
+        }
+    }
+
     private fun mergePreloaded(preloaded: List<PreloadApp>) {
         preloadedIds.clear()
         var updated = 0
@@ -363,6 +379,7 @@ class MainActivity : AppCompatActivity() {
                         log(".apks không chứa APK hợp lệ: ${apkFile.absolutePath}")
                         return@launch
                     }
+                    logEnvForDebug("install:start-split")
                     val rooted = RootInstaller.isDeviceRooted()
                     log("Thiết bị root: $rooted. Bắt đầu cài đặt (split) ${item.name}")
                     if (rooted) {
@@ -370,12 +387,15 @@ class MainActivity : AppCompatActivity() {
                         if (ok) {
                             toast("Cài đặt (root) thành công")
                             log("Cài đặt (root) thành công (split). pm: $msg")
+                            logEnvForDebug("install:root-success-split")
                         } else {
                             toast("Cài đặt (root) thất bại: $msg. Thử cách thường…")
                             log("Cài đặt (root) thất bại (split): $msg. Thử cách thường…")
+                            logEnvForDebug("install:root-fail-split")
                             installSplitsNormally(splits)
                         }
                     } else {
+                        logEnvForDebug("install:no-root-split")
                         installSplitsNormally(splits)
                     }
                     return@launch
@@ -388,18 +408,22 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 val rooted = RootInstaller.isDeviceRooted()
+                logEnvForDebug("install:start-apk")
                 log("Thiết bị root: $rooted. Bắt đầu cài đặt ${item.name}")
                 if (rooted) {
                     val (ok, msg) = withContext(Dispatchers.IO) { RootInstaller.installApk(apkFile) }
                     if (ok) {
                         toast("Cài đặt (root) thành công")
                         log("Cài đặt (root) thành công. pm output: $msg")
+                        logEnvForDebug("install:root-success-apk")
                     } else {
                         toast("Cài đặt (root) thất bại: $msg. Thử cách thường…")
                         log("Cài đặt (root) thất bại: $msg. Thử cách thường…")
+                        logEnvForDebug("install:root-fail-apk")
                         installNormally(apkFile)
                     }
                 } else {
+                    logEnvForDebug("install:no-root-apk")
                     log("Mở trình cài đặt thường (FileProvider)")
                     installNormally(apkFile)
                 }
