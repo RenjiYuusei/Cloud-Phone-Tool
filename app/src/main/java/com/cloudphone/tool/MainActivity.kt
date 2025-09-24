@@ -1,8 +1,12 @@
 package com.cloudphone.tool
 
 import android.content.ActivityNotFoundException
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.PackageManager
+import android.content.pm.PackageInstaller
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -12,14 +16,15 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.DividerItemDecoration
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
 import com.google.android.material.tabs.TabLayout
+import android.app.PendingIntent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -27,11 +32,14 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
+import java.io.FileInputStream
 import java.io.InputStream
-import java.io.InputStreamReader
 import java.security.MessageDigest
 import java.util.*
 import java.util.concurrent.TimeUnit
+import android.text.Editable
+import android.text.TextWatcher
+import java.util.zip.ZipInputStream
 
 class MainActivity : AppCompatActivity() {
 
@@ -43,32 +51,57 @@ class MainActivity : AppCompatActivity() {
             .readTimeout(5, TimeUnit.MINUTES)
             .build()
     }
+    private val DEFAULT_SOURCE_URL = "https://raw.githubusercontent.com/RenjiYuusei/Cloud-Phone-Tool/main/source/apps.json"
 
     private lateinit var listView: RecyclerView
+    private lateinit var installedListView: RecyclerView
     private lateinit var adapter: ApkAdapter
-    private val items = mutableListOf<ApkItem>()
+    private lateinit var installedAdapter: InstalledAppsAdapter
+    private val items = mutableListOf<ApkItem>()            // nguồn dữ liệu đầy đủ
+    private val filteredItems = mutableListOf<ApkItem>()     // danh sách sau khi lọc để hiển thị
     private val preloadedIds = mutableSetOf<String>()
     private lateinit var tabLayout: TabLayout
+    private lateinit var sourceBar: View
+    private lateinit var searchInput: EditText
     private lateinit var logContainer: View
     private lateinit var logView: TextView
     private val loadingIds = mutableSetOf<String>()
+    private val installedItems = mutableListOf<InstalledAppItem>()
+    private var currentQuery: String = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Bật giao diện tối mặc định
+        AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
         setContentView(R.layout.activity_main)
 
         listView = findViewById(R.id.recycler)
+        installedListView = findViewById(R.id.recycler_installed)
         tabLayout = findViewById(R.id.tab_layout)
+        sourceBar = findViewById(R.id.source_bar)
         logContainer = findViewById(R.id.log_container)
         logView = findViewById(R.id.log_view)
+        searchInput = findViewById(R.id.search_input)
+        val btnRefreshSource: Button = findViewById(R.id.btn_refresh_source)
+        btnRefreshSource.setOnClickListener {
+            lifecycleScope.launch {
+                refreshPreloadedApps()
+                toast("Đã làm mới nguồn")
+            }
+        }
+        searchInput.addTextChangedListener(object : TextWatcher {
+            override fun afterTextChanged(s: Editable?) { applyFilter(s?.toString() ?: "") }
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+        })
 
-        adapter = ApkAdapter(items, preloadedIds,
+        adapter = ApkAdapter(filteredItems, preloadedIds,
             isLoading = { id -> loadingIds.contains(id) },
             onInstall = { item -> onInstallClicked(item) },
             onDelete = { item ->
                 items.removeAll { it.id == item.id }
                 saveItems()
-                adapter.notifyDataSetChanged()
+                applyFilter(currentQuery)
                 log("Đã xóa mục: ${item.name}")
             }
         )
@@ -76,39 +109,70 @@ class MainActivity : AppCompatActivity() {
         listView.addItemDecoration(DividerItemDecoration(this, DividerItemDecoration.VERTICAL))
         listView.adapter = adapter
 
+        installedAdapter = InstalledAppsAdapter(installedItems,
+            onOpen = { app -> openInstalledApp(app) },
+            onInfo = { app -> openInstalledAppInfo(app) },
+            onUninstall = { app -> uninstallApp(app) }
+        )
+        installedListView.layoutManager = LinearLayoutManager(this)
+        installedListView.addItemDecoration(DividerItemDecoration(this, DividerItemDecoration.VERTICAL))
+        installedListView.adapter = installedAdapter
+
         setupTabs()
 
         loadItems()
-        mergePreloadedApps()
+        // Nạp preload từ nguồn mặc định (cố định)
+        lifecycleScope.launch {
+            refreshPreloadedApps(initial = true)
+            applyFilter("")
+        }
         updateCachedVersions()
-        adapter.notifyDataSetChanged()
+        applyFilter(currentQuery)
         log("Khởi động xong. Tổng mục: ${items.size}")
     }
 
     private fun setupTabs() {
         tabLayout.addTab(tabLayout.newTab().setText("Ứng dụng"))
-        tabLayout.addTab(tabLayout.newTab().setText("Log"))
+        tabLayout.addTab(tabLayout.newTab().setText("Đã cài đặt"))
+        tabLayout.addTab(tabLayout.newTab().setText("Nhật ký"))
         showAppsTab()
         tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab) {
-                if (tab.position == 0) showAppsTab() else showLogTab()
+                when (tab.position) {
+                    0 -> showAppsTab()
+                    1 -> showInstalledTab()
+                    else -> showLogTab()
+                }
             }
             override fun onTabUnselected(tab: TabLayout.Tab?) {}
             override fun onTabReselected(tab: TabLayout.Tab) {
-                if (tab.position == 1) scrollLogToBottom()
+                if (tab.position == 2) scrollLogToBottom()
             }
         })
     }
 
     private fun showAppsTab() {
         listView.visibility = View.VISIBLE
+        installedListView.visibility = View.GONE
         logContainer.visibility = View.GONE
+        sourceBar.visibility = View.VISIBLE
     }
 
     private fun showLogTab() {
         listView.visibility = View.GONE
+        installedListView.visibility = View.GONE
         logContainer.visibility = View.VISIBLE
+        sourceBar.visibility = View.GONE
         scrollLogToBottom()
+    }
+
+    private fun showInstalledTab() {
+        listView.visibility = View.GONE
+        logContainer.visibility = View.GONE
+        installedListView.visibility = View.VISIBLE
+        sourceBar.visibility = View.GONE
+        // nạp danh sách ứng dụng đã cài
+        loadInstalledApps()
     }
 
     private fun log(msg: String) {
@@ -126,45 +190,86 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun mergePreloadedApps() {
-        try {
-            val preloaded = loadPreloadedApps()
-            preloadedIds.clear()
-            for (p in preloaded) {
-                val id = stableIdFromUrl(p.url)
-                preloadedIds.add(id)
-                val idx = items.indexOfFirst { it.id == id }
-                val normalized = normalizeUrl(p.url)
-                if (idx >= 0) {
-                    // Cập nhật tên/url nếu khác
-                    val exist = items[idx]
-                    items[idx] = exist.copy(
+    private fun mergePreloaded(preloaded: List<PreloadApp>) {
+        preloadedIds.clear()
+        for (p in preloaded) {
+            val id = stableIdFromUrl(p.url)
+            preloadedIds.add(id)
+            val idx = items.indexOfFirst { it.id == id }
+            val normalized = normalizeUrl(p.url)
+            if (idx >= 0) {
+                val exist = items[idx]
+                items[idx] = exist.copy(
+                    name = p.name,
+                    sourceType = SourceType.URL,
+                    url = normalized,
+                    uri = null,
+                    versionName = exist.versionName ?: p.versionName,
+                    versionCode = exist.versionCode ?: p.versionCode
+                )
+            } else {
+                items.add(
+                    ApkItem(
+                        id = id,
                         name = p.name,
                         sourceType = SourceType.URL,
                         url = normalized,
                         uri = null,
-                        versionName = exist.versionName ?: p.versionName,
-                        versionCode = exist.versionCode ?: p.versionCode
+                        versionName = p.versionName,
+                        versionCode = p.versionCode
                     )
-                } else {
-                    items.add(
-                        ApkItem(
-                            id = id,
-                            name = p.name,
-                            sourceType = SourceType.URL,
-                            url = normalized,
-                            uri = null,
-                            versionName = p.versionName,
-                            versionCode = p.versionCode
-                        )
-                    )
-                }
-                log("Preload: ${p.name} -> ${normalized}")
+                )
             }
-        } catch (_: Exception) {
-            // bỏ qua nếu không có raw hoặc lỗi parse
-            log("Không thể nạp danh sách preload từ raw/preload_apps.json")
+            log("Preload: ${p.name} -> ${normalized}")
         }
+    }
+
+    private suspend fun fetchPreloadedAppsRemote(url: String): List<PreloadApp>? = withContext(Dispatchers.IO) {
+        try {
+            logBg("Tải danh sách ứng dụng online từ: $url")
+            val req = Request.Builder().url(url).header("User-Agent", "CloudPhoneTool/1.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    logBg("Nguồn online thất bại: HTTP ${resp.code}")
+                    return@withContext null
+                }
+                val body = resp.body?.string() ?: return@withContext null
+                val type = object : com.google.gson.reflect.TypeToken<List<PreloadApp>>() {}.type
+                val list: List<PreloadApp> = Gson().fromJson(body, type)
+                list
+            }
+        } catch (e: Exception) {
+            logBg("Lỗi tải nguồn online: ${e.message}")
+            null
+        }
+    }
+
+    private suspend fun refreshPreloadedApps(initial: Boolean = false) {
+        val preloaded: List<PreloadApp>? = fetchPreloadedAppsRemote(DEFAULT_SOURCE_URL)
+        if (preloaded != null) {
+            mergePreloaded(preloaded)
+            withContext(Dispatchers.Main) { applyFilter(currentQuery) }
+        } else {
+            if (!initial) logBg("Không thể nạp danh sách preload từ nguồn mặc định")
+        }
+    }
+
+    private fun applyFilter(q: String) {
+        currentQuery = q
+        val needle = q.trim().lowercase(Locale.getDefault())
+        filteredItems.clear()
+        if (needle.isEmpty()) {
+            filteredItems.addAll(items)
+        } else {
+            filteredItems.addAll(
+                items.filter {
+                    it.name.lowercase(Locale.getDefault()).contains(needle)
+                            || (it.url?.lowercase(Locale.getDefault())?.contains(needle) == true)
+                            || (it.uri?.lowercase(Locale.getDefault())?.contains(needle) == true)
+                }
+            )
+        }
+        adapter.notifyDataSetChanged()
     }
 
     @Suppress("DEPRECATION")
@@ -184,13 +289,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun loadPreloadedApps(): List<PreloadApp> {
-        val isr = InputStreamReader(resources.openRawResource(R.raw.preload_apps))
-        isr.use {
-            val type = object : TypeToken<List<PreloadApp>>() {}.type
-            return Gson().fromJson(it, type)
-        }
-    }
+    // Đã loại bỏ nạp từ raw/preload_apps.json để cố định nguồn online mặc định
 
     private fun stableIdFromUrl(url: String): String {
         return try {
@@ -207,7 +306,7 @@ class MainActivity : AppCompatActivity() {
             val idxLoading = items.indexOfFirst { it.id == item.id }
             if (idxLoading >= 0) {
                 loadingIds.add(item.id)
-                adapter.notifyItemChanged(idxLoading)
+                applyFilter(currentQuery)
             }
             try {
                 val apkFile = when (item.sourceType) {
@@ -220,27 +319,43 @@ class MainActivity : AppCompatActivity() {
                     return@launch
                 }
 
-                if (!isLikelyApk(apkFile)) {
-                    log("Tệp tải về không phải APK (size=${apkFile.length()}B). Có thể là trang HTML xác nhận của Google Drive.")
-                    toast("Tệp tải về không phải APK. Kiểm tra lại link tải.")
+                val isApks = (item.url?.lowercase(Locale.ROOT)?.contains(".apks") == true)
+                        || apkFile.name.lowercase(Locale.ROOT).endsWith(".apks")
+                if (isApks) {
+                    // Xử lý cài đặt gói chia nhỏ (.apks)
+                    val splits = withContext(Dispatchers.IO) { extractSplitsFromApks(apkFile) }
+                    if (splits.isEmpty()) {
+                        toast("Không tìm thấy APK bên trong file .apks")
+                        log(".apks không chứa APK hợp lệ: ${apkFile.absolutePath}")
+                        return@launch
+                    }
+                    val rooted = RootInstaller.isDeviceRooted()
+                    log("Thiết bị root: $rooted. Bắt đầu cài đặt (split) ${item.name}")
+                    if (rooted) {
+                        val (ok, msg) = withContext(Dispatchers.IO) { RootInstaller.installApks(splits) }
+                        if (ok) {
+                            toast("Cài đặt (root) thành công")
+                            log("Cài đặt (root) thành công (split). pm: $msg")
+                        } else {
+                            toast("Cài đặt (root) thất bại: $msg")
+                            log("Cài đặt (root) thất bại (split): $msg")
+                        }
+                    } else {
+                        installSplitsNormally(splits)
+                    }
                     return@launch
                 }
 
-                // Cập nhật phiên bản hiển thị trước khi cài đặt
-                val (vName, vCode) = extractApkVersion(apkFile)
-                val idx = items.indexOfFirst { it.id == item.id }
-                if (idx >= 0) {
-                    val cur = items[idx]
-                    items[idx] = cur.copy(versionName = vName, versionCode = vCode)
-                    saveItems()
-                    adapter.notifyItemChanged(idx)
-                    log("Cập nhật phiên bản hiển thị cho ${cur.name}: v=${vName ?: "?"} code=${vCode ?: -1}")
+                if (!isLikelyApk(apkFile)) {
+                    log("Tệp tải về không phải APK (size=${apkFile.length()}B). Có thể là trang HTML hoặc sai link.")
+                    toast("Tệp tải về không phải APK. Kiểm tra lại link tải.")
+                    return@launch
                 }
 
                 val rooted = RootInstaller.isDeviceRooted()
                 log("Thiết bị root: $rooted. Bắt đầu cài đặt ${item.name}")
                 if (rooted) {
-                    val (ok, msg) = withContext(Dispatchers.IO) { RootInstaller.installApkWithRoot(apkFile) }
+                    val (ok, msg) = withContext(Dispatchers.IO) { RootInstaller.installApk(apkFile) }
                     if (ok) {
                         toast("Cài đặt (root) thành công")
                         log("Cài đặt (root) thành công. pm output: $msg")
@@ -259,7 +374,7 @@ class MainActivity : AppCompatActivity() {
             } finally {
                 if (idxLoading >= 0) {
                     loadingIds.remove(item.id)
-                    adapter.notifyItemChanged(idxLoading)
+                    applyFilter(currentQuery)
                 }
             }
         }
@@ -299,31 +414,6 @@ class MainActivity : AppCompatActivity() {
         val normalized = url
         logBg("Bắt đầu tải: ${item.name} từ $normalized")
         val outFile = cacheFileFor(item)
-        if (isGoogleDriveUrl(normalized)) {
-            val ok = downloadFromGoogleDrive(normalized, outFile)
-            if (ok) {
-                logBg("Đã tải (Drive): ${outFile.absolutePath} (${outFile.length()} B)")
-                return@withContext outFile
-            } else {
-                logBg("Drive resolver: thất bại, thử tải trực tiếp như URL thường…")
-                // Fallback: thử GET trực tiếp URL hiện tại
-                val reqFb = Request.Builder()
-                    .url(normalized)
-                    .header("User-Agent", "Mozilla/5.0 (Android) CloudPhoneTool/1.0")
-                    .build()
-                client.newCall(reqFb).execute().use { respFb ->
-                    if (!respFb.isSuccessful) {
-                        logBg("Fallback direct: thất bại code=${respFb.code}")
-                        return@withContext null
-                    }
-                    respFb.body?.byteStream()?.use { input ->
-                        FileOutputStream(outFile).use { out -> copyStreamWithProgress(input, out) }
-                    }
-                    logBg("Fallback direct: đã tải ${outFile.length()} B, ctype=${respFb.header("Content-Type")}")
-                    return@withContext outFile
-                }
-            }
-        }
         val req = Request.Builder()
             .url(normalized)
             .header("User-Agent", "Mozilla/5.0 (Android) CloudPhoneTool/1.0")
@@ -341,112 +431,111 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun isGoogleDriveUrl(url: String): Boolean {
-        return try {
-            val u = Uri.parse(url)
-            (u.host ?: "").contains("drive.google.com")
-        } catch (_: Exception) { false }
-    }
-
-    private fun extractDriveId(url: String): String? {
-        val g1 = Regex("https?://drive\\.google\\.com/file/d/([a-zA-Z0-9_-]+)/view.*")
-        val g2 = Regex("https?://drive\\.google\\.com/open\\?id=([a-zA-Z0-9_-]+).*")
-        val g3 = Regex("https?://drive\\.google\\.com/uc\\?export=download&id=([a-zA-Z0-9_-]+).*")
-        return when {
-            g1.matches(url) -> g1.find(url)!!.groupValues[1]
-            g2.matches(url) -> g2.find(url)!!.groupValues[1]
-            g3.matches(url) -> g3.find(url)!!.groupValues[1]
-            else -> null
-        }
-    }
-
-    private fun collectCookies(resp: okhttp3.Response): String {
-        val set = resp.headers("Set-Cookie")
-        val list = mutableListOf<String>()
-        for (c in set) {
-            val part = c.substringBefore(';').trim()
-            if (part.isNotBlank()) list.add(part)
-        }
-        return list.joinToString("; ")
-    }
-
-    private fun downloadFromGoogleDrive(url: String, outFile: File): Boolean {
-        val id = extractDriveId(url)
-        val firstUrl = if (id != null) "https://drive.google.com/uc?export=download&id=$id" else url
-        val firstReq = Request.Builder()
-            .url(firstUrl)
-            .header("User-Agent", "Mozilla/5.0 (Android) CloudPhoneTool/1.0")
-            .build()
-        client.newCall(firstReq).execute().use { resp1 ->
-            logBg("Drive resolver: resp1 code=${resp1.code}, ctype=${resp1.header("Content-Type")}")
-            if (!resp1.isSuccessful) {
-                logBg("Drive resolver: resp1 thất bại code=${resp1.code}")
-                return false
-            }
-            val disp = resp1.header("Content-Disposition")
-            val ctype = resp1.header("Content-Type") ?: ""
-            if (disp?.contains("attachment") == true || !ctype.contains("text/html")) {
-                resp1.body?.byteStream()?.use { input ->
-                    FileOutputStream(outFile).use { out -> copyStreamWithProgress(input, out) }
-                }
-                return true
-            }
-            // HTML confirm page -> extract confirm token
-            val html = resp1.body?.string() ?: return false
-            if (html.contains("Quota exceeded", ignoreCase = true) || html.contains("download quota", ignoreCase = true)) {
-                logBg("Drive resolver: Quota exceeded - không thể tải tạm thời")
-                return false
-            }
-            // Thử bắt token trong HTML (trong href hoặc action)
-            var token = Regex("confirm=([0-9A-Za-z_\\-]+)").find(html)?.groupValues?.getOrNull(1)
-            var realId = id ?: Regex("id=([0-9A-Za-z_\\-]+)").find(html)?.groupValues?.getOrNull(1)
-            // Nếu chưa có token hoặc id, thử bắt từ thẻ href '/uc?export=download...'
-            if (token == null || realId == null) {
-                val href = Regex("href=\\\"(/uc\\?export=download[^\\\"]+)\\\"").find(html)?.groupValues?.getOrNull(1)
-                if (href != null) {
-                    val hrefFull = "https://drive.google.com$href"
-                    token = Regex("confirm=([0-9A-Za-z_\\-]+)").find(hrefFull)?.groupValues?.getOrNull(1) ?: token
-                    realId = Regex("id=([0-9A-Za-z_\\-]+)").find(hrefFull)?.groupValues?.getOrNull(1) ?: realId
-                }
-            }
-            // Nếu vẫn thiếu token: thử lấy từ cookie 'download_warning'
-            if (token == null) {
-                val cookiesList = resp1.headers("Set-Cookie")
-                for (c in cookiesList) {
-                    val name = c.substringBefore('=').trim()
-                    val value = c.substringAfter('=').substringBefore(';').trim()
-                    if (name.startsWith("download_warning")) { token = value; break }
-                }
-            }
-            if (realId == null) realId = id
-            if (token == null || realId == null) {
-                logBg("Drive resolver: không tìm thấy confirm token/id")
-                return false
-            }
-            val cookies = collectCookies(resp1)
-            val confirmUrl = "https://drive.google.com/uc?export=download&confirm=$token&id=$realId"
-            logBg("Drive resolver: gọi confirm với token=$token, id=$realId")
-            val req2 = Request.Builder()
-                .url(confirmUrl)
-                .header("User-Agent", "Mozilla/5.0 (Android) CloudPhoneTool/1.0")
-                .header("Cookie", cookies)
-                .build()
-            client.newCall(req2).execute().use { resp2 ->
-                logBg("Drive resolver: resp2 code=${resp2.code}, ctype=${resp2.header("Content-Type")}")
-                if (!resp2.isSuccessful) {
-                    logBg("Drive resolver: resp2 thất bại code=${resp2.code}")
-                    return false
-                }
-                resp2.body?.byteStream()?.use { input ->
-                    FileOutputStream(outFile).use { out -> copyStreamWithProgress(input, out) }
-                }
-                return true
-            }
-        }
-    }
+    // Đã loại bỏ toàn bộ xử lý Google Drive, chỉ sử dụng tải trực tiếp (ưu tiên Dropbox direct)
 
     private fun ensureApkExtension(name: String): String {
-        return if (name.lowercase(Locale.ROOT).endsWith(".apk")) name else "$name.apk"
+        val lower = name.lowercase(Locale.ROOT)
+        return if (lower.endsWith(".apk") || lower.endsWith(".apks")) name else "$name.apk"
+    }
+
+    // Giải nén file .apks để lấy danh sách các APK (base + split)
+    private fun extractSplitsFromApks(apksFile: File): List<File> {
+        val outDir = File(cacheDir, "splits/${apksFile.nameWithoutExtension}")
+        if (outDir.exists()) outDir.deleteRecursively()
+        outDir.mkdirs()
+        val results = mutableListOf<File>()
+        try {
+            ZipInputStream(FileInputStream(apksFile)).use { zis ->
+                while (true) {
+                    val entry = zis.nextEntry ?: break
+                    if (!entry.isDirectory && entry.name.endsWith(".apk")) {
+                        val outFile = File(outDir, entry.name.substringAfterLast('/'))
+                        outFile.outputStream().use { out ->
+                            val buf = ByteArray(8 * 1024)
+                            while (true) {
+                                val r = zis.read(buf)
+                                if (r == -1) break
+                                out.write(buf, 0, r)
+                            }
+                            out.flush()
+                        }
+                        results.add(outFile)
+                    }
+                    zis.closeEntry()
+                }
+            }
+        } catch (e: Exception) {
+            log("Lỗi giải nén .apks: ${e.message}")
+        }
+        // Đảm bảo base.apk (nếu có) đứng đầu danh sách
+        return results.sortedWith(compareBy({ it.name != "base.apk" }, { it.name }))
+    }
+
+    // Cài đặt nhiều APK (split) theo cách thường bằng PackageInstaller
+    private fun installSplitsNormally(files: List<File>) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (!packageManager.canRequestPackageInstalls()) {
+                    val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                        data = Uri.parse("package:$packageName")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    startActivity(intent)
+                    toast("Hãy cấp quyền cài đặt ứng dụng không xác định, sau đó thử lại")
+                    return
+                }
+            }
+            val installer = packageManager.packageInstaller
+            val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
+            val sessionId = installer.createSession(params)
+            val session = installer.openSession(sessionId)
+            try {
+                for (f in files) {
+                    FileInputStream(f).use { input ->
+                        session.openWrite(f.name, 0, f.length()).use { out ->
+                            val buf = ByteArray(8 * 1024)
+                            while (true) {
+                                val r = input.read(buf)
+                                if (r == -1) break
+                                out.write(buf, 0, r)
+                            }
+                            session.fsync(out)
+                        }
+                    }
+                }
+                val action = "${packageName}.INSTALL_COMMIT"
+                val receiver = object : BroadcastReceiver() {
+                    override fun onReceive(context: Context?, intent: Intent?) {
+                        try { unregisterReceiver(this) } catch (_: Exception) {}
+                        val status = intent?.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE) ?: PackageInstaller.STATUS_FAILURE
+                        val msg = intent?.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE) ?: ""
+                        if (status == PackageInstaller.STATUS_SUCCESS) {
+                            toast("Cài đặt thành công")
+                            log("Cài đặt splits (thường) thành công")
+                        } else if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
+                            val confirm: Intent? = if (Build.VERSION.SDK_INT >= 33) {
+                                intent?.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)
+                            } else {
+                                @Suppress("DEPRECATION") intent?.getParcelableExtra(Intent.EXTRA_INTENT) as? Intent
+                            }
+                            try { startActivity(confirm?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Exception) {}
+                        } else {
+                            toast("Cài đặt thất bại: $msg")
+                            log("Cài đặt splits (thường) thất bại: $msg")
+                        }
+                    }
+                }
+                registerReceiver(receiver, IntentFilter(action))
+                val pi = PendingIntent.getBroadcast(this, sessionId, Intent(action), PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0))
+                session.commit(pi.intentSender)
+                toast("Đang tiến hành cài đặt…")
+            } finally {
+                session.close()
+            }
+        } catch (e: Exception) {
+            toast("Lỗi cài đặt splits: ${e.message}")
+            log("Lỗi cài đặt splits (thường): ${e.message}")
+        }
     }
 
     private fun copyStreamWithProgress(input: InputStream, out: FileOutputStream) {
@@ -461,7 +550,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun cacheFileFor(item: ApkItem): File {
         val dir = File(cacheDir, "apks").apply { mkdirs() }
-        return File(dir, "${item.id}.apk")
+        val ext = try {
+            val u = item.url?.lowercase(Locale.ROOT)
+            if (u != null && u.contains(".apks")) "apks" else "apk"
+        } catch (_: Exception) { "apk" }
+        return File(dir, "${item.id}.$ext")
     }
 
     // Kiểm tra nhanh file có phải APK (ZIP) bằng signature 'PK'
@@ -505,24 +598,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // Chuyển đổi một số link Drive sang link tải trực tiếp
+    // Chuẩn hoá Dropbox -> direct download; bỏ toàn bộ xử lý Google Drive
     private fun normalizeUrl(raw: String): String {
         var url = raw
-        val g1 = Regex("https?://drive\\.google\\.com/file/d/([a-zA-Z0-9_-]+)/view.*")
-        val g2 = Regex("https?://drive\\.google\\.com/open\\?id=([a-zA-Z0-9_-]+).*")
-        val g3 = Regex("https?://drive\\.google\\.com/uc\\?export=download&id=([a-zA-Z0-9_-]+).*")
-        when {
-            g1.matches(url) -> {
-                val id = g1.find(url)!!.groupValues[1]
-                url = "https://drive.google.com/uc?export=download&id=$id"
-            }
-            g2.matches(url) -> {
-                val id = g2.find(url)!!.groupValues[1]
-                url = "https://drive.google.com/uc?export=download&id=$id"
-            }
-            g3.matches(url) -> return url
-        }
-        // Chuẩn hoá Dropbox -> direct download
         if (url.contains("dropbox.com")) {
             var u2 = url
             u2 = u2.replace("://www.dropbox.com", "://dl.dropboxusercontent.com")
@@ -581,6 +659,90 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+
+    // Khu vực quản lý ứng dụng đã cài đặt
+    private fun loadInstalledApps() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val pm = packageManager
+                val pkgs = pm.getInstalledApplications(PackageManager.GET_META_DATA)
+                val list = pkgs.map { appInfo ->
+                    val pkg = appInfo.packageName
+                    val pi = try { pm.getPackageInfo(pkg, 0) } catch (e: Exception) { null }
+                    val vName = pi?.versionName
+                    val vCode = if (Build.VERSION.SDK_INT >= 28) pi?.longVersionCode else pi?.versionCode?.toLong()
+                    InstalledAppItem(
+                        appName = pm.getApplicationLabel(appInfo).toString(),
+                        packageName = pkg,
+                        versionName = vName,
+                        versionCode = vCode,
+                        icon = pm.getApplicationIcon(appInfo)
+                    )
+                }.sortedBy { it.appName.lowercase(Locale.getDefault()) }
+                withContext(Dispatchers.Main) {
+                    installedItems.clear()
+                    installedItems.addAll(list)
+                    installedAdapter.notifyDataSetChanged()
+                    log("Nạp danh sách ứng dụng đã cài: ${list.size} ứng dụng")
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) { log("Lỗi nạp ứng dụng đã cài: ${e.message}") }
+            }
+        }
+    }
+
+    private fun openInstalledApp(app: InstalledAppItem) {
+        try {
+            val intent = packageManager.getLaunchIntentForPackage(app.packageName)
+            if (intent != null) {
+                startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            } else {
+                toast("Ứng dụng không có Activity khởi chạy")
+            }
+        } catch (e: Exception) {
+            toast("Không mở được ứng dụng: ${e.message}")
+        }
+    }
+
+    private fun openInstalledAppInfo(app: InstalledAppItem) {
+        try {
+            val uri = Uri.parse("package:${app.packageName}")
+            val i = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, uri)
+            startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (e: Exception) {
+            toast("Không mở được trang thông tin: ${e.message}")
+        }
+    }
+
+    private fun uninstallApp(app: InstalledAppItem) {
+        lifecycleScope.launch {
+            val rooted = RootInstaller.isDeviceRooted()
+            if (rooted) {
+                val (ok, msg) = withContext(Dispatchers.IO) { RootInstaller.uninstall(app.packageName) }
+                if (ok) {
+                    toast("Đã gỡ cài đặt (root): ${app.appName}")
+                    log("Gỡ cài đặt (root) thành công: ${app.packageName}. pm: $msg")
+                    loadInstalledApps()
+                } else {
+                    toast("Gỡ (root) thất bại, thử cách thường…")
+                    log("Gỡ (root) thất bại: $msg. Thử cách thường…")
+                    uninstallNormally(app.packageName)
+                }
+            } else {
+                uninstallNormally(app.packageName)
+            }
+        }
+    }
+
+    private fun uninstallNormally(pkg: String) {
+        try {
+            val uri = Uri.parse("package:$pkg")
+            val i = Intent(Intent.ACTION_DELETE, uri)
+            startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (e: Exception) {
+            toast("Không thể mở gỡ cài đặt: ${e.message}")
+        }
+    }
 }
 
 // Data & Adapter
@@ -688,82 +850,4 @@ data class PreloadApp(
     val versionCode: Long? = null
 )
 
-class ApkAdapter(
-    private val data: List<ApkItem>,
-    private val nonDeletableIds: Set<String>,
-    private val isLoading: (String) -> Boolean,
-    private val onInstall: (ApkItem) -> Unit,
-    private val onDelete: (ApkItem) -> Unit
-) : RecyclerView.Adapter<ApkAdapter.VH>() {
-
-    inner class VH(v: View) : RecyclerView.ViewHolder(v) {
-        val name: TextView = v.findViewById(R.id.txt_name)
-        val src: TextView = v.findViewById(R.id.txt_src)
-        val version: TextView = v.findViewById(R.id.txt_version)
-        val btnInstall: Button = v.findViewById(R.id.btn_install)
-        val btnDelete: ImageButton = v.findViewById(R.id.btn_delete)
-        val progress: ProgressBar = v.findViewById(R.id.progress)
-    }
-
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
-        val v = LayoutInflater.from(parent.context).inflate(R.layout.item_apk, parent, false)
-        return VH(v)
-    }
-
-    override fun onBindViewHolder(holder: VH, position: Int) {
-        val it = data[position]
-        holder.name.text = it.name
-        holder.src.text = when (it.sourceType) {
-            SourceType.URL -> it.url ?: ""
-            SourceType.LOCAL -> it.uri ?: ""
-        }
-        holder.version.text = "Phiên bản: ${it.versionName ?: "(chưa rõ)"}${it.versionCode?.let { c -> " (code $c)" } ?: ""}"
-        val loadingNow = isLoading(it.id)
-        holder.progress.visibility = if (loadingNow) View.VISIBLE else View.GONE
-        holder.btnInstall.isEnabled = !loadingNow
-        holder.btnInstall.setOnClickListener { _ -> if (!loadingNow) onInstall(it) }
-        val deletable = !nonDeletableIds.contains(it.id)
-        holder.btnDelete.visibility = if (deletable) View.VISIBLE else View.GONE
-        holder.btnDelete.setOnClickListener { _ -> if (deletable) onDelete(it) }
-    }
-
-    override fun getItemCount(): Int = data.size
-}
-
-object RootInstaller {
-    fun isDeviceRooted(): Boolean {
-        return try {
-            val p = Runtime.getRuntime().exec(arrayOf("which", "su"))
-            val exit = p.waitFor()
-            exit == 0
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    fun installApkWithRoot(file: File): Pair<Boolean, String> {
-        return try {
-            val size = file.length()
-            // Streaming install to avoid SELinux/path access issues
-            val p = ProcessBuilder("su", "-c", "pm install -r -S $size")
-                .redirectErrorStream(true)
-                .start()
-            file.inputStream().use { input ->
-                p.outputStream.use { out ->
-                    val buf = ByteArray(8 * 1024)
-                    while (true) {
-                        val r = input.read(buf)
-                        if (r == -1) break
-                        out.write(buf, 0, r)
-                    }
-                    out.flush()
-                }
-            }
-            val exit = p.waitFor()
-            val output = p.inputStream.bufferedReader().readText()
-            if (exit == 0) true to output else false to output
-        } catch (e: Exception) {
-            false to (e.message ?: "unknown error")
-        }
-    }
-}
+// RootInstaller đã được tách sang file riêng: RootInstaller.kt

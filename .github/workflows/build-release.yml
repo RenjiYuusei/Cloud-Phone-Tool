@@ -3,8 +3,12 @@ name: Build Release APK
 on:
   push:
     branches: [ main, master, develop ]
+    paths-ignore:
+      - 'source/**'
   pull_request:
     branches: [ main, master ]
+    paths-ignore:
+      - 'source/**'
   workflow_dispatch:
 
 permissions:

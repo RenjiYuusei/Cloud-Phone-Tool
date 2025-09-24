@@ -55,7 +55,8 @@
         android:textSize="12sp"
         android:maxLines="2"
         android:ellipsize="end"
-        android:text="source" />
+        android:text="source"
+        android:visibility="gone" />
 
     <LinearLayout
         android:layout_width="match_parent"
