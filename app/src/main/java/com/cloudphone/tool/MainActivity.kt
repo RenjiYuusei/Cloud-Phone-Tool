@@ -25,6 +25,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.google.gson.Gson
 import com.google.android.material.tabs.TabLayout
 import android.app.PendingIntent
+ 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -63,11 +64,15 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tabLayout: TabLayout
     private lateinit var sourceBar: View
     private lateinit var searchInput: EditText
+    private lateinit var btnRefreshSource: Button
     private lateinit var logContainer: View
     private lateinit var logView: TextView
     private val loadingIds = mutableSetOf<String>()
     private val installedItems = mutableListOf<InstalledAppItem>()
+    private val installedFilteredItems = mutableListOf<InstalledAppItem>()
     private var currentQuery: String = ""
+    private var currentInstalledQuery: String = ""
+    private var currentTab: Int = 0 // 0: Ứng dụng, 1: Đã cài đặt, 2: Nhật ký
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -82,7 +87,7 @@ class MainActivity : AppCompatActivity() {
         logContainer = findViewById(R.id.log_container)
         logView = findViewById(R.id.log_view)
         searchInput = findViewById(R.id.search_input)
-        val btnRefreshSource: Button = findViewById(R.id.btn_refresh_source)
+        btnRefreshSource = findViewById(R.id.btn_refresh_source)
         btnRefreshSource.setOnClickListener {
             lifecycleScope.launch {
                 refreshPreloadedApps()
@@ -90,7 +95,10 @@ class MainActivity : AppCompatActivity() {
             }
         }
         searchInput.addTextChangedListener(object : TextWatcher {
-            override fun afterTextChanged(s: Editable?) { applyFilter(s?.toString() ?: "") }
+            override fun afterTextChanged(s: Editable?) {
+                val q = s?.toString() ?: ""
+                if (currentTab == 0) applyFilter(q) else if (currentTab == 1) applyInstalledFilter(q)
+            }
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
         })
@@ -109,7 +117,7 @@ class MainActivity : AppCompatActivity() {
         listView.addItemDecoration(DividerItemDecoration(this, DividerItemDecoration.VERTICAL))
         listView.adapter = adapter
 
-        installedAdapter = InstalledAppsAdapter(installedItems,
+        installedAdapter = InstalledAppsAdapter(installedFilteredItems,
             onOpen = { app -> openInstalledApp(app) },
             onInfo = { app -> openInstalledAppInfo(app) },
             onUninstall = { app -> uninstallApp(app) }
@@ -128,7 +136,7 @@ class MainActivity : AppCompatActivity() {
         }
         updateCachedVersions()
         applyFilter(currentQuery)
-        log("Khởi động xong. Tổng mục: ${items.size}")
+        applyInstalledFilter(currentInstalledQuery)
     }
 
     private fun setupTabs() {
@@ -139,9 +147,9 @@ class MainActivity : AppCompatActivity() {
         tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab) {
                 when (tab.position) {
-                    0 -> showAppsTab()
-                    1 -> showInstalledTab()
-                    else -> showLogTab()
+                    0 -> { currentTab = 0; showAppsTab() }
+                    1 -> { currentTab = 1; showInstalledTab() }
+                    else -> { currentTab = 2; showLogTab() }
                 }
             }
             override fun onTabUnselected(tab: TabLayout.Tab?) {}
@@ -156,6 +164,7 @@ class MainActivity : AppCompatActivity() {
         installedListView.visibility = View.GONE
         logContainer.visibility = View.GONE
         sourceBar.visibility = View.VISIBLE
+        btnRefreshSource.visibility = View.VISIBLE
     }
 
     private fun showLogTab() {
@@ -170,7 +179,8 @@ class MainActivity : AppCompatActivity() {
         listView.visibility = View.GONE
         logContainer.visibility = View.GONE
         installedListView.visibility = View.VISIBLE
-        sourceBar.visibility = View.GONE
+        sourceBar.visibility = View.VISIBLE
+        btnRefreshSource.visibility = View.GONE
         // nạp danh sách ứng dụng đã cài
         loadInstalledApps()
     }
@@ -178,6 +188,11 @@ class MainActivity : AppCompatActivity() {
     private fun log(msg: String) {
         val ts = java.text.SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
         logView.append("[$ts] $msg\n")
+        // Giữ log gọn: giới hạn ~4000 ký tự cuối
+        val txt = logView.text?.toString() ?: ""
+        if (txt.length > 6000) {
+            logView.text = txt.takeLast(4000)
+        }
         scrollLogToBottom()
     }
 
@@ -192,6 +207,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun mergePreloaded(preloaded: List<PreloadApp>) {
         preloadedIds.clear()
+        var updated = 0
         for (p in preloaded) {
             val id = stableIdFromUrl(p.url)
             preloadedIds.add(id)
@@ -220,8 +236,9 @@ class MainActivity : AppCompatActivity() {
                     )
                 )
             }
-            log("Preload: ${p.name} -> ${normalized}")
+            updated++
         }
+        log("Đã nạp danh sách online: $updated mục")
     }
 
     private suspend fun fetchPreloadedAppsRemote(url: String): List<PreloadApp>? = withContext(Dispatchers.IO) {
@@ -270,6 +287,23 @@ class MainActivity : AppCompatActivity() {
             )
         }
         adapter.notifyDataSetChanged()
+    }
+
+    private fun applyInstalledFilter(q: String) {
+        currentInstalledQuery = q
+        val needle = q.trim().lowercase(Locale.getDefault())
+        installedFilteredItems.clear()
+        if (needle.isEmpty()) {
+            installedFilteredItems.addAll(installedItems)
+        } else {
+            installedFilteredItems.addAll(
+                installedItems.filter {
+                    it.appName.lowercase(Locale.getDefault()).contains(needle)
+                            || it.packageName.lowercase(Locale.getDefault()).contains(needle)
+                }
+            )
+        }
+        installedAdapter.notifyDataSetChanged()
     }
 
     @Suppress("DEPRECATION")
@@ -337,8 +371,9 @@ class MainActivity : AppCompatActivity() {
                             toast("Cài đặt (root) thành công")
                             log("Cài đặt (root) thành công (split). pm: $msg")
                         } else {
-                            toast("Cài đặt (root) thất bại: $msg")
-                            log("Cài đặt (root) thất bại (split): $msg")
+                            toast("Cài đặt (root) thất bại: $msg. Thử cách thường…")
+                            log("Cài đặt (root) thất bại (split): $msg. Thử cách thường…")
+                            installSplitsNormally(splits)
                         }
                     } else {
                         installSplitsNormally(splits)
@@ -424,7 +459,9 @@ class MainActivity : AppCompatActivity() {
                 throw IllegalStateException("HTTP ${resp.code}")
             }
             resp.body?.byteStream()?.use { input ->
-                FileOutputStream(outFile).use { out -> copyStreamWithProgress(input, out) }
+                FileOutputStream(outFile).use { out ->
+                    copyStreamWithProgress(input, out)
+                }
             }
             logBg("Đã tải xong: ${outFile.absolutePath} (${outFile.length()} B), content-type=${resp.header("Content-Type")}")
             outFile
@@ -682,7 +719,7 @@ class MainActivity : AppCompatActivity() {
                 withContext(Dispatchers.Main) {
                     installedItems.clear()
                     installedItems.addAll(list)
-                    installedAdapter.notifyDataSetChanged()
+                    applyInstalledFilter(currentInstalledQuery)
                     log("Nạp danh sách ứng dụng đã cài: ${list.size} ứng dụng")
                 }
             } catch (e: Exception) {

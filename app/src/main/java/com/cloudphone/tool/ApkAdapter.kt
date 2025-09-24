@@ -36,6 +36,7 @@ class ApkAdapter(
         holder.name.text = it.name
         // Ẩn hiển thị link tải/nguồn để tránh rối UI
         holder.src.visibility = View.GONE
+        // Không hiển thị icon cho app online
         holder.version.text = "Phiên bản: ${it.versionName ?: "(chưa rõ)"}${it.versionCode?.let { c -> " (code $c)" } ?: ""}"
         val loadingNow = isLoading(it.id)
         holder.progress.visibility = if (loadingNow) View.VISIBLE else View.GONE

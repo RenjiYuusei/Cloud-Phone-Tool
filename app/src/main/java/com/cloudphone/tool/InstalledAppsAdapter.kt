@@ -3,10 +3,10 @@ package com.cloudphone.tool
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Button
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.button.MaterialButton
 
 class InstalledAppsAdapter(
     private val data: List<InstalledAppItem>,
@@ -20,9 +20,9 @@ class InstalledAppsAdapter(
         val name: TextView = v.findViewById(R.id.txt_app_name)
         val pkg: TextView = v.findViewById(R.id.txt_package)
         val version: TextView = v.findViewById(R.id.txt_version)
-        val btnOpen: Button = v.findViewById(R.id.btn_open)
-        val btnInfo: Button = v.findViewById(R.id.btn_info)
-        val btnUninstall: Button = v.findViewById(R.id.btn_uninstall)
+        val btnOpen: MaterialButton = v.findViewById(R.id.btn_open)
+        val btnInfo: MaterialButton = v.findViewById(R.id.btn_info)
+        val btnUninstall: MaterialButton = v.findViewById(R.id.btn_uninstall)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
