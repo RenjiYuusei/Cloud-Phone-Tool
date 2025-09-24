@@ -522,6 +522,14 @@ class MainActivity : AppCompatActivity() {
             }
             g3.matches(url) -> return url
         }
+        // Chuẩn hoá Dropbox -> direct download
+        if (url.contains("dropbox.com")) {
+            var u2 = url
+            u2 = u2.replace("://www.dropbox.com", "://dl.dropboxusercontent.com")
+            u2 = u2.replace("://dropbox.com", "://dl.dropboxusercontent.com")
+            u2 = if (u2.contains("dl=0")) u2.replace("dl=0", "dl=1") else if (u2.contains("dl=")) u2 else u2 + (if (u2.contains("?")) "&dl=1" else "?dl=1")
+            return u2
+        }
         return url
     }
 
