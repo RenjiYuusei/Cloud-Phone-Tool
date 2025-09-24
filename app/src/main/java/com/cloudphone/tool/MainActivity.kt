@@ -304,7 +304,25 @@ class MainActivity : AppCompatActivity() {
             if (ok) {
                 logBg("Đã tải (Drive): ${outFile.absolutePath} (${outFile.length()} B)")
                 return@withContext outFile
-            } else return@withContext null
+            } else {
+                logBg("Drive resolver: thất bại, thử tải trực tiếp như URL thường…")
+                // Fallback: thử GET trực tiếp URL hiện tại
+                val reqFb = Request.Builder()
+                    .url(normalized)
+                    .header("User-Agent", "Mozilla/5.0 (Android) CloudPhoneTool/1.0")
+                    .build()
+                client.newCall(reqFb).execute().use { respFb ->
+                    if (!respFb.isSuccessful) {
+                        logBg("Fallback direct: thất bại code=${'$'}{respFb.code}")
+                        return@withContext null
+                    }
+                    respFb.body?.byteStream()?.use { input ->
+                        FileOutputStream(outFile).use { out -> copyStreamWithProgress(input, out) }
+                    }
+                    logBg("Fallback direct: đã tải ${outFile.length()} B, ctype=${'$'}{respFb.header("Content-Type")}")
+                    return@withContext outFile
+                }
+            }
         }
         val req = Request.Builder()
             .url(normalized)
@@ -360,7 +378,11 @@ class MainActivity : AppCompatActivity() {
             .header("User-Agent", "Mozilla/5.0 (Android) CloudPhoneTool/1.0")
             .build()
         client.newCall(firstReq).execute().use { resp1 ->
-            if (!resp1.isSuccessful) return false
+            logBg("Drive resolver: resp1 code=${resp1.code}, ctype=${resp1.header("Content-Type")}")
+            if (!resp1.isSuccessful) {
+                logBg("Drive resolver: resp1 thất bại code=${resp1.code}")
+                return false
+            }
             val disp = resp1.header("Content-Disposition")
             val ctype = resp1.header("Content-Type") ?: ""
             if (disp?.contains("attachment") == true || !ctype.contains("text/html")) {
@@ -371,18 +393,50 @@ class MainActivity : AppCompatActivity() {
             }
             // HTML confirm page -> extract confirm token
             val html = resp1.body?.string() ?: return false
-            val token = Regex("confirm=([0-9A-Za-z_\\-]+)").find(html)?.groupValues?.getOrNull(1)
-            val realId = id ?: Regex("id=([0-9A-Za-z_\\-]+)").find(html)?.groupValues?.getOrNull(1)
-            if (token == null || realId == null) return false
+            if (html.contains("Quota exceeded", ignoreCase = true) || html.contains("download quota", ignoreCase = true)) {
+                logBg("Drive resolver: Quota exceeded - không thể tải tạm thời")
+                return false
+            }
+            // Thử bắt token trong HTML (trong href hoặc action)
+            var token = Regex("confirm=([0-9A-Za-z_\\-]+)").find(html)?.groupValues?.getOrNull(1)
+            var realId = id ?: Regex("id=([0-9A-Za-z_\\-]+)").find(html)?.groupValues?.getOrNull(1)
+            // Nếu chưa có token hoặc id, thử bắt từ thẻ href '/uc?export=download...'
+            if (token == null || realId == null) {
+                val href = Regex("href=\\\"(/uc\\?export=download[^\\\"]+)\\\"").find(html)?.groupValues?.getOrNull(1)
+                if (href != null) {
+                    val hrefFull = "https://drive.google.com$href"
+                    token = Regex("confirm=([0-9A-Za-z_\\-]+)").find(hrefFull)?.groupValues?.getOrNull(1) ?: token
+                    realId = Regex("id=([0-9A-Za-z_\\-]+)").find(hrefFull)?.groupValues?.getOrNull(1) ?: realId
+                }
+            }
+            // Nếu vẫn thiếu token: thử lấy từ cookie 'download_warning'
+            if (token == null) {
+                val cookiesList = resp1.headers("Set-Cookie")
+                for (c in cookiesList) {
+                    val name = c.substringBefore('=').trim()
+                    val value = c.substringAfter('=').substringBefore(';').trim()
+                    if (name.startsWith("download_warning")) { token = value; break }
+                }
+            }
+            if (realId == null) realId = id
+            if (token == null || realId == null) {
+                logBg("Drive resolver: không tìm thấy confirm token/id")
+                return false
+            }
             val cookies = collectCookies(resp1)
             val confirmUrl = "https://drive.google.com/uc?export=download&confirm=$token&id=$realId"
+            logBg("Drive resolver: gọi confirm với token=$token, id=$realId")
             val req2 = Request.Builder()
                 .url(confirmUrl)
                 .header("User-Agent", "Mozilla/5.0 (Android) CloudPhoneTool/1.0")
                 .header("Cookie", cookies)
                 .build()
             client.newCall(req2).execute().use { resp2 ->
-                if (!resp2.isSuccessful) return false
+                logBg("Drive resolver: resp2 code=${resp2.code}, ctype=${resp2.header("Content-Type")}")
+                if (!resp2.isSuccessful) {
+                    logBg("Drive resolver: resp2 thất bại code=${resp2.code}")
+                    return false
+                }
                 resp2.body?.byteStream()?.use { input ->
                     FileOutputStream(outFile).use { out -> copyStreamWithProgress(input, out) }
                 }
