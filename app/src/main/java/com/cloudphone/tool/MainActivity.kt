@@ -51,6 +51,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tabLayout: TabLayout
     private lateinit var logContainer: View
     private lateinit var logView: TextView
+    private val loadingIds = mutableSetOf<String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -62,6 +63,7 @@ class MainActivity : AppCompatActivity() {
         logView = findViewById(R.id.log_view)
 
         adapter = ApkAdapter(items, preloadedIds,
+            isLoading = { id -> loadingIds.contains(id) },
             onInstall = { item -> onInstallClicked(item) },
             onDelete = { item ->
                 items.removeAll { it.id == item.id }
@@ -202,6 +204,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun onInstallClicked(item: ApkItem) {
         lifecycleScope.launch {
+            val idxLoading = items.indexOfFirst { it.id == item.id }
+            if (idxLoading >= 0) {
+                loadingIds.add(item.id)
+                adapter.notifyItemChanged(idxLoading)
+            }
             try {
                 val apkFile = when (item.sourceType) {
                     SourceType.LOCAL -> copyFromUriIfNeeded(Uri.parse(item.uri!!))
@@ -249,6 +256,11 @@ class MainActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 toast("Lỗi: ${e.message}")
                 log("Lỗi: ${e.message}")
+            } finally {
+                if (idxLoading >= 0) {
+                    loadingIds.remove(item.id)
+                    adapter.notifyItemChanged(idxLoading)
+                }
             }
         }
     }
@@ -284,9 +296,18 @@ class MainActivity : AppCompatActivity() {
 
     private suspend fun downloadApk(item: ApkItem): File? = withContext(Dispatchers.IO) {
         val url = item.url ?: return@withContext null
-        logBg("Bắt đầu tải: ${item.name} từ $url")
+        val normalized = url
+        logBg("Bắt đầu tải: ${item.name} từ $normalized")
+        val outFile = cacheFileFor(item)
+        if (isGoogleDriveUrl(normalized)) {
+            val ok = downloadFromGoogleDrive(normalized, outFile)
+            if (ok) {
+                logBg("Đã tải (Drive): ${outFile.absolutePath} (${outFile.length()} B)")
+                return@withContext outFile
+            } else return@withContext null
+        }
         val req = Request.Builder()
-            .url(url)
+            .url(normalized)
             .header("User-Agent", "Mozilla/5.0 (Android) CloudPhoneTool/1.0")
             .build()
         client.newCall(req).execute().use { resp ->
@@ -294,15 +315,79 @@ class MainActivity : AppCompatActivity() {
                 logBg("Tải thất bại: HTTP ${'$'}{resp.code}")
                 throw IllegalStateException("HTTP ${'$'}{resp.code}")
             }
-            val dir = File(cacheDir, "apks").apply { mkdirs() }
-            val outFile = cacheFileFor(item)
             resp.body?.byteStream()?.use { input ->
-                FileOutputStream(outFile).use { out ->
-                    copyStreamWithProgress(input, out)
-                }
+                FileOutputStream(outFile).use { out -> copyStreamWithProgress(input, out) }
             }
             logBg("Đã tải xong: ${outFile.absolutePath} (${outFile.length()} B), content-type=${resp.header("Content-Type")}")
             outFile
+        }
+    }
+
+    private fun isGoogleDriveUrl(url: String): Boolean {
+        return try {
+            val u = Uri.parse(url)
+            (u.host ?: "").contains("drive.google.com")
+        } catch (_: Exception) { false }
+    }
+
+    private fun extractDriveId(url: String): String? {
+        val g1 = Regex("https?://drive\\.google\\.com/file/d/([a-zA-Z0-9_-]+)/view.*")
+        val g2 = Regex("https?://drive\\.google\\.com/open\\?id=([a-zA-Z0-9_-]+).*")
+        val g3 = Regex("https?://drive\\.google\\.com/uc\\?export=download&id=([a-zA-Z0-9_-]+).*")
+        return when {
+            g1.matches(url) -> g1.find(url)!!.groupValues[1]
+            g2.matches(url) -> g2.find(url)!!.groupValues[1]
+            g3.matches(url) -> g3.find(url)!!.groupValues[1]
+            else -> null
+        }
+    }
+
+    private fun collectCookies(resp: okhttp3.Response): String {
+        val set = resp.headers("Set-Cookie")
+        val list = mutableListOf<String>()
+        for (c in set) {
+            val part = c.substringBefore(';').trim()
+            if (part.isNotBlank()) list.add(part)
+        }
+        return list.joinToString("; ")
+    }
+
+    private fun downloadFromGoogleDrive(url: String, outFile: File): Boolean {
+        val id = extractDriveId(url)
+        val firstUrl = if (id != null) "https://drive.google.com/uc?export=download&id=$id" else url
+        val firstReq = Request.Builder()
+            .url(firstUrl)
+            .header("User-Agent", "Mozilla/5.0 (Android) CloudPhoneTool/1.0")
+            .build()
+        client.newCall(firstReq).execute().use { resp1 ->
+            if (!resp1.isSuccessful) return false
+            val disp = resp1.header("Content-Disposition")
+            val ctype = resp1.header("Content-Type") ?: ""
+            if (disp?.contains("attachment") == true || !ctype.contains("text/html")) {
+                resp1.body?.byteStream()?.use { input ->
+                    FileOutputStream(outFile).use { out -> copyStreamWithProgress(input, out) }
+                }
+                return true
+            }
+            // HTML confirm page -> extract confirm token
+            val html = resp1.body?.string() ?: return false
+            val token = Regex("confirm=([0-9A-Za-z_\\-]+)").find(html)?.groupValues?.getOrNull(1)
+            val realId = id ?: Regex("id=([0-9A-Za-z_\\-]+)").find(html)?.groupValues?.getOrNull(1)
+            if (token == null || realId == null) return false
+            val cookies = collectCookies(resp1)
+            val confirmUrl = "https://drive.google.com/uc?export=download&confirm=$token&id=$realId"
+            val req2 = Request.Builder()
+                .url(confirmUrl)
+                .header("User-Agent", "Mozilla/5.0 (Android) CloudPhoneTool/1.0")
+                .header("Cookie", cookies)
+                .build()
+            client.newCall(req2).execute().use { resp2 ->
+                if (!resp2.isSuccessful) return false
+                resp2.body?.byteStream()?.use { input ->
+                    FileOutputStream(outFile).use { out -> copyStreamWithProgress(input, out) }
+                }
+                return true
+            }
         }
     }
 
@@ -323,6 +408,20 @@ class MainActivity : AppCompatActivity() {
     private fun cacheFileFor(item: ApkItem): File {
         val dir = File(cacheDir, "apks").apply { mkdirs() }
         return File(dir, "${item.id}.apk")
+    }
+
+    // Kiểm tra nhanh file có phải APK (ZIP) bằng signature 'PK'
+    private fun isLikelyApk(file: File): Boolean {
+        return try {
+            if (!file.exists() || file.length() < 4) return false
+            file.inputStream().use { ins ->
+                val sig = ByteArray(2)
+                val r = ins.read(sig)
+                r == 2 && sig[0] == 0x50.toByte() && sig[1] == 0x4B.toByte()
+            }
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private suspend fun copyFromUriIfNeeded(uri: Uri): File? = withContext(Dispatchers.IO) {
@@ -530,6 +629,7 @@ data class PreloadApp(
 class ApkAdapter(
     private val data: List<ApkItem>,
     private val nonDeletableIds: Set<String>,
+    private val isLoading: (String) -> Boolean,
     private val onInstall: (ApkItem) -> Unit,
     private val onDelete: (ApkItem) -> Unit
 ) : RecyclerView.Adapter<ApkAdapter.VH>() {
@@ -540,6 +640,7 @@ class ApkAdapter(
         val version: TextView = v.findViewById(R.id.txt_version)
         val btnInstall: Button = v.findViewById(R.id.btn_install)
         val btnDelete: ImageButton = v.findViewById(R.id.btn_delete)
+        val progress: ProgressBar = v.findViewById(R.id.progress)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
@@ -555,7 +656,10 @@ class ApkAdapter(
             SourceType.LOCAL -> it.uri ?: ""
         }
         holder.version.text = "Phiên bản: ${it.versionName ?: "(chưa rõ)"}${it.versionCode?.let { c -> " (code $c)" } ?: ""}"
-        holder.btnInstall.setOnClickListener { _ -> onInstall(it) }
+        val loadingNow = isLoading(it.id)
+        holder.progress.visibility = if (loadingNow) View.VISIBLE else View.GONE
+        holder.btnInstall.isEnabled = !loadingNow
+        holder.btnInstall.setOnClickListener { _ -> if (!loadingNow) onInstall(it) }
         val deletable = !nonDeletableIds.contains(it.id)
         holder.btnDelete.visibility = if (deletable) View.VISIBLE else View.GONE
         holder.btnDelete.setOnClickListener { _ -> if (deletable) onDelete(it) }
