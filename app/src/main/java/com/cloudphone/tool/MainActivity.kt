@@ -313,13 +313,13 @@ class MainActivity : AppCompatActivity() {
                     .build()
                 client.newCall(reqFb).execute().use { respFb ->
                     if (!respFb.isSuccessful) {
-                        logBg("Fallback direct: thất bại code=${'$'}{respFb.code}")
+                        logBg("Fallback direct: thất bại code=${respFb.code}")
                         return@withContext null
                     }
                     respFb.body?.byteStream()?.use { input ->
                         FileOutputStream(outFile).use { out -> copyStreamWithProgress(input, out) }
                     }
-                    logBg("Fallback direct: đã tải ${outFile.length()} B, ctype=${'$'}{respFb.header("Content-Type")}")
+                    logBg("Fallback direct: đã tải ${outFile.length()} B, ctype=${respFb.header("Content-Type")}")
                     return@withContext outFile
                 }
             }
@@ -330,8 +330,8 @@ class MainActivity : AppCompatActivity() {
             .build()
         client.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) {
-                logBg("Tải thất bại: HTTP ${'$'}{resp.code}")
-                throw IllegalStateException("HTTP ${'$'}{resp.code}")
+                logBg("Tải thất bại: HTTP ${resp.code}")
+                throw IllegalStateException("HTTP ${resp.code}")
             }
             resp.body?.byteStream()?.use { input ->
                 FileOutputStream(outFile).use { out -> copyStreamWithProgress(input, out) }
