@@ -15,6 +15,73 @@ object RootInstaller {
         } catch (_: Exception) {
             false
         }
+
+    // Fallback: cài đơn APK bằng session theo đường dẫn thay vì direct pm install PATH
+    private fun installApkByPathSession(file: File): Pair<Boolean, String> {
+        val safeName = file.name.replace(Regex("[^A-Za-z0-9._-]"), "_")
+        val tmpPath = "/data/local/tmp/$safeName"
+        return try {
+            // Chuẩn bị thư mục tạm và copy file
+            ProcessBuilder("su", "-c", "mkdir -p /data/local/tmp && chmod 777 /data/local/tmp")
+                .redirectErrorStream(true)
+                .start()
+                .waitFor()
+            var p = ProcessBuilder("su", "-c", "cat > $tmpPath")
+                .redirectErrorStream(true)
+                .start()
+            file.inputStream().use { input ->
+                p.outputStream.use { out ->
+                    val buf = ByteArray(8 * 1024)
+                    while (true) {
+                        val r = input.read(buf)
+                        if (r == -1) break
+                        out.write(buf, 0, r)
+                    }
+                    out.flush()
+                }
+            }
+            p.waitFor()
+            ProcessBuilder("su", "-c", "chmod 644 $tmpPath").start().waitFor()
+
+            // Tạo session và ghi theo đường dẫn
+            p = ProcessBuilder("su", "-c", "pm install-create -r")
+                .redirectErrorStream(true)
+                .start()
+            val outCreate = p.inputStream.bufferedReader().readText()
+            val exitCreate = p.waitFor()
+            if (exitCreate != 0) {
+                ProcessBuilder("su", "-c", "rm -f $tmpPath").start()
+                return false to outCreate
+            }
+            val sessionId = Regex("\\[(\\d+)\\]").find(outCreate)?.groupValues?.get(1)
+                ?: Regex("session\\s+(\\d+)", RegexOption.IGNORE_CASE).find(outCreate)?.groupValues?.get(1)
+                ?: run {
+                    ProcessBuilder("su", "-c", "rm -f $tmpPath").start();
+                    return false to outCreate
+                }
+
+            val baseName = file.name.replace(Regex("[^A-Za-z0-9._-]"), "_")
+            p = ProcessBuilder("su", "-c", "pm install-write $sessionId $baseName $tmpPath")
+                .redirectErrorStream(true)
+                .start()
+            val outWrite = p.inputStream.bufferedReader().readText()
+            val exitWrite = p.waitFor()
+            if (exitWrite != 0) {
+                ProcessBuilder("su", "-c", "rm -f $tmpPath").start()
+                return false to outWrite
+            }
+
+            p = ProcessBuilder("su", "-c", "pm install-commit $sessionId")
+                .redirectErrorStream(true)
+                .start()
+            val outCommit = p.inputStream.bufferedReader().readText()
+            val exitCommit = p.waitFor()
+            ProcessBuilder("su", "-c", "rm -f $tmpPath").start()
+            (exitCommit == 0) to outCommit
+        } catch (e: Exception) {
+            try { ProcessBuilder("su", "-c", "rm -f $tmpPath").start() } catch (_: Exception) {}
+            false to (e.message ?: "unknown error")
+        }
     }
 
     // Thông tin môi trường root để ghi log hỗ trợ chẩn đoán
@@ -75,10 +142,15 @@ object RootInstaller {
                 val (eg2, og2) = runSuAndRead("getprop ro.magisk.version.code")
                 if (eg2 == 0 && og2.isNotBlank()) magiskVCode = og2.lines().first().trim()
             }
-            if (magiskVName == null && magiskVCode == null) {
-                val (et, ot) = runSuAndRead("[ -d /sbin/.magisk ] && echo yes || echo no")
-                if (et == 0 && ot.trim() == "yes") magiskVName = "(detected)"
+            // Sanitize error-like outputs (tránh hiển thị 'sh: magisk: not found' như version)
+            fun clean(s: String?): String? {
+                if (s == null) return null
+                val t = s.trim()
+                val tl = t.lowercase()
+                return if (tl.startsWith("sh:") || tl.contains("not found") || tl.contains("inaccessible")) null else t
             }
+            magiskVName = clean(magiskVName)
+            magiskVCode = clean(magiskVCode)
         }
 
         // Detect KernelSU heuristics
@@ -119,9 +191,12 @@ object RootInstaller {
         // 1) Ưu tiên: copy sang /data/local/tmp và cài từ đường dẫn để tránh EPIPE
         val copy = copyToTmpAndInstall(file)
         if (copy.first) return copy
+        // 1b) Thử theo cơ chế session bằng đường dẫn (một số ROM chặn direct pm install PATH)
+        val byPathSession = installApkByPathSession(file)
+        if (byPathSession.first) return byPathSession
         // 2) Thử stream stdin (có thể lỗi EPIPE trên một số ROM)
         val stream = streamInstall(file)
-        return stream
+        return if (stream.first) stream else false to "copy:${copy.second}; stream:${stream.second}"
     }
 
     // Cài đặt nhiều APK (split) cho file .apks qua root
@@ -135,7 +210,8 @@ object RootInstaller {
         val byStream = installApksByStream(inputs)
         if (byStream.first) return byStream
         // 3) Cuối cùng: pm install-multiple -r
-        return fallbackInstallMultiple(inputs)
+        val fb = fallbackInstallMultiple(inputs)
+        return if (fb.first) fb else false to "path:${byPath.second}; stream:${byStream.second}; fallback:${fb.second}"
     }
 
     private fun installApksByPath(files: List<File>): Pair<Boolean, String> {

@@ -73,6 +73,7 @@ class MainActivity : AppCompatActivity() {
     private var currentQuery: String = ""
     private var currentInstalledQuery: String = ""
     private var currentTab: Int = 0 // 0: Ứng dụng, 1: Đã cài đặt, 2: Nhật ký
+    private var suppressSearchWatcher: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -96,8 +97,13 @@ class MainActivity : AppCompatActivity() {
         }
         searchInput.addTextChangedListener(object : TextWatcher {
             override fun afterTextChanged(s: Editable?) {
+                if (suppressSearchWatcher) return
                 val q = s?.toString() ?: ""
-                if (currentTab == 0) applyFilter(q) else if (currentTab == 1) applyInstalledFilter(q)
+                if (currentTab == 0) {
+                    applyFilter(q)
+                } else if (currentTab == 1) {
+                    applyInstalledFilter(q)
+                }
             }
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
@@ -144,12 +150,13 @@ class MainActivity : AppCompatActivity() {
         tabLayout.addTab(tabLayout.newTab().setText("Đã cài đặt"))
         tabLayout.addTab(tabLayout.newTab().setText("Nhật ký"))
         showAppsTab()
+        syncSearchInputWithTab()
         tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab) {
                 when (tab.position) {
-                    0 -> { currentTab = 0; showAppsTab() }
-                    1 -> { currentTab = 1; showInstalledTab() }
-                    else -> { currentTab = 2; showLogTab() }
+                    0 -> { currentTab = 0; showAppsTab(); syncSearchInputWithTab() }
+                    1 -> { currentTab = 1; showInstalledTab(); syncSearchInputWithTab() }
+                    else -> { currentTab = 2; showLogTab(); syncSearchInputWithTab() }
                 }
             }
             override fun onTabUnselected(tab: TabLayout.Tab?) {}
@@ -157,6 +164,27 @@ class MainActivity : AppCompatActivity() {
                 if (tab.position == 2) scrollLogToBottom()
             }
         })
+    }
+
+    private fun syncSearchInputWithTab() {
+        suppressSearchWatcher = true
+        try {
+            when (currentTab) {
+                0 -> { // Apps tab
+                    val want = currentQuery
+                    if ((searchInput.text?.toString() ?: "") != want) searchInput.setText(want)
+                }
+                1 -> { // Installed tab
+                    val want = currentInstalledQuery
+                    if ((searchInput.text?.toString() ?: "") != want) searchInput.setText(want)
+                }
+                else -> {
+                    if (!searchInput.text.isNullOrEmpty()) searchInput.setText("")
+                }
+            }
+        } finally {
+            suppressSearchWatcher = false
+        }
     }
 
     private fun showAppsTab() {
