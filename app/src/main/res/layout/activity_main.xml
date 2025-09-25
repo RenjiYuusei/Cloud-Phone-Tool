@@ -16,8 +16,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:visibility="gone"
-        android:indeterminate="true"
-        style="@style/Widget.Material3.LinearProgressIndicator" />
+        android:indeterminate="true" />
 
     <LinearLayout
         android:id="@+id/source_bar"
