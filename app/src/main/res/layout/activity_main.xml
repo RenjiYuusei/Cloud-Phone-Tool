@@ -11,6 +11,14 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content" />
 
+    <com.google.android.material.progressindicator.LinearProgressIndicator
+        android:id="@+id/global_progress"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:visibility="gone"
+        app:indeterminate="true"
+        style="@style/Widget.Material3.LinearProgressIndicator" />
+
     <LinearLayout
         android:id="@+id/source_bar"
         android:layout_width="match_parent"

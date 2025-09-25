@@ -25,6 +25,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.google.gson.Gson
 import com.google.android.material.tabs.TabLayout
 import android.app.PendingIntent
+import com.google.android.material.progressindicator.LinearProgressIndicator
  
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -74,6 +75,7 @@ class MainActivity : AppCompatActivity() {
     private var currentInstalledQuery: String = ""
     private var currentTab: Int = 0 // 0: Ứng dụng, 1: Đã cài đặt, 2: Nhật ký
     private var suppressSearchWatcher: Boolean = false
+    private lateinit var globalProgress: LinearProgressIndicator
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -89,9 +91,12 @@ class MainActivity : AppCompatActivity() {
         logView = findViewById(R.id.log_view)
         searchInput = findViewById(R.id.search_input)
         btnRefreshSource = findViewById(R.id.btn_refresh_source)
+        globalProgress = findViewById(R.id.global_progress)
         btnRefreshSource.setOnClickListener {
             lifecycleScope.launch {
+                setBusy(true)
                 refreshPreloadedApps()
+                setBusy(false)
                 toast("Đã làm mới nguồn")
             }
         }
@@ -231,6 +236,10 @@ class MainActivity : AppCompatActivity() {
         if (parent is ScrollView) {
             parent.post { parent.fullScroll(View.FOCUS_DOWN) }
         }
+    }
+
+    private fun setBusy(busy: Boolean) {
+        globalProgress.visibility = if (busy) View.VISIBLE else View.GONE
     }
 
     // Ghi log thông tin hệ thống và môi trường root để hỗ trợ chẩn đoán
@@ -385,6 +394,7 @@ class MainActivity : AppCompatActivity() {
             if (idxLoading >= 0) {
                 loadingIds.add(item.id)
                 applyFilter(currentQuery)
+                setBusy(true)
             }
             try {
                 val apkFile = when (item.sourceType) {
@@ -411,7 +421,8 @@ class MainActivity : AppCompatActivity() {
                     val rooted = RootInstaller.isDeviceRooted()
                     log("Thiết bị root: $rooted. Bắt đầu cài đặt (split) ${item.name}")
                     if (rooted) {
-                        val (ok, msg) = withContext(Dispatchers.IO) { RootInstaller.installApks(splits) }
+                        val resSplit: Pair<Boolean, String> = withContext(Dispatchers.IO) { RootInstaller.installApks(splits) }
+                        val (ok, msg) = resSplit
                         if (ok) {
                             toast("Cài đặt (root) thành công")
                             log("Cài đặt (root) thành công (split). pm: $msg")
@@ -439,7 +450,8 @@ class MainActivity : AppCompatActivity() {
                 logEnvForDebug("install:start-apk")
                 log("Thiết bị root: $rooted. Bắt đầu cài đặt ${item.name}")
                 if (rooted) {
-                    val (ok, msg) = withContext(Dispatchers.IO) { RootInstaller.installApk(apkFile) }
+                    val resApk: Pair<Boolean, String> = withContext(Dispatchers.IO) { RootInstaller.installApk(apkFile) }
+                    val (ok, msg) = resApk
                     if (ok) {
                         toast("Cài đặt (root) thành công")
                         log("Cài đặt (root) thành công. pm output: $msg")
@@ -462,6 +474,7 @@ class MainActivity : AppCompatActivity() {
                 if (idxLoading >= 0) {
                     loadingIds.remove(item.id)
                     applyFilter(currentQuery)
+                    if (loadingIds.isEmpty()) setBusy(false)
                 }
             }
         }
@@ -807,7 +820,8 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val rooted = RootInstaller.isDeviceRooted()
             if (rooted) {
-                val (ok, msg) = withContext(Dispatchers.IO) { RootInstaller.uninstall(app.packageName) }
+                val resUn: Pair<Boolean, String> = withContext(Dispatchers.IO) { RootInstaller.uninstall(app.packageName) }
+                val (ok, msg) = resUn
                 if (ok) {
                     toast("Đã gỡ cài đặt (root): ${app.appName}")
                     log("Gỡ cài đặt (root) thành công: ${app.packageName}. pm: $msg")
