@@ -15,6 +15,7 @@ object RootInstaller {
         } catch (_: Exception) {
             false
         }
+    }
 
     // Fallback: cài đơn APK bằng session theo đường dẫn thay vì direct pm install PATH
     private fun installApkByPathSession(file: File): Pair<Boolean, String> {
@@ -113,7 +114,7 @@ object RootInstaller {
 
         // su path
         val (whichExit, whichOut) = runAndRead("which", "su")
-        val suPath = if (whichExit == 0) whichOut.lineSequence().firstOrNull()?.trim().takeUnless { it.isNullOrBlank() } else null
+        val suPath = if (whichExit == 0) whichOut.lineSequence().firstOrNull()?.trim()?.takeUnless { it.isNullOrBlank() } else null
 
         // uid0 check via su -c id
         val (idExit, idOut) = runSuAndRead("id")
