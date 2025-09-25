@@ -26,6 +26,7 @@ import com.google.gson.Gson
 import com.google.android.material.tabs.TabLayout
 import android.app.PendingIntent
 import com.google.android.material.progressindicator.LinearProgressIndicator
+import androidx.core.content.pm.PackageInfoCompat
  
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -772,7 +773,7 @@ class MainActivity : AppCompatActivity() {
                     val pkg = appInfo.packageName
                     val pi = try { pm.getPackageInfo(pkg, 0) } catch (e: Exception) { null }
                     val vName = pi?.versionName
-                    val vCode = if (Build.VERSION.SDK_INT >= 28) pi?.longVersionCode else pi?.versionCode?.toLong()
+                    val vCode = pi?.let { PackageInfoCompat.getLongVersionCode(it) }
                     InstalledAppItem(
                         appName = pm.getApplicationLabel(appInfo).toString(),
                         packageName = pkg,
