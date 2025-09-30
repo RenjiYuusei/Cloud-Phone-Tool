@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Cloud Phone Tool</string>
+    <string name="install">Cài đặt</string>
+    <string name="delete">Xóa</string>
+    <string name="open">Mở</string>
+    <string name="info">Thông tin</string>
+    <string name="uninstall">Gỡ cài đặt</string>
+    <string name="refresh">Làm mới</string>
+    <string name="search_hint">Tìm kiếm ứng dụng…</string>
+    <string name="sort">Sắp xếp</string>
+    <string name="cached">Đã tải</string>
+    <string name="clear_cache">Xóa cache</string>
+    <string name="sort_by_name">Tên A-Z</string>
+    <string name="sort_by_name_desc">Tên Z-A</string>
+    <string name="sort_by_size">Kích thước</string>
+    <string name="sort_by_date">Ngày tải</string>
+    <string name="stats_format">%d ứng dụng • %s đã cache</string>
+    <string name="cache_cleared">Đã xóa %d tệp cache (%s)</string>
+</resources>
