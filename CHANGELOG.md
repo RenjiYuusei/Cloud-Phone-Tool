@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.1.0] - 2025-09-30
+## [1.1.0] - 2025-09-30 (Update 2)
 
 ### ✨ Cải tiến giao diện
 - **Material Design 3**: Áp dụng Material You với màu sắc hiện đại
@@ -32,6 +32,12 @@
 - Spacing và padding đồng nhất
 - Color contrast tốt hơn cho dark theme
 - Typography cải tiến
+
+### 🐛 Sửa lỗi (Update 2)
+- ✅ Sửa lỗi tab Nhật ký không hiển thị đúng
+- ✅ Thiết kế lại icon app với gradient Purple Material You
+- ✅ Thêm adaptive icon cho Android 8.0+
+- ✅ Icon hiện đại với phone + cloud + download arrow
 
 ## [1.0.1] - Previous version
 - Cài đặt APK từ URL

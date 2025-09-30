@@ -224,6 +224,7 @@ class MainActivity : AppCompatActivity() {
         installedListView.visibility = View.GONE
         logContainer.visibility = View.VISIBLE
         sourceBar.visibility = View.GONE
+        statsBar.visibility = View.GONE
         scrollLogToBottom()
     }
 
