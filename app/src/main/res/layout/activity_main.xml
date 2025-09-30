@@ -128,18 +128,21 @@
         android:layout_height="0dp"
         android:layout_weight="1"
         android:visibility="gone"
-        android:paddingTop="8dp">
+        android:padding="16dp"
+        android:background="@color/md_theme_surface">
 
         <TextView
             android:id="@+id/log_view"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textSize="12sp"
-            android:textColor="?android:attr/textColorPrimary"
-            android:lineSpacingExtra="2dp"
+            android:textSize="13sp"
+            android:textColor="@color/md_theme_onSurface"
+            android:lineSpacingExtra="4dp"
             android:typeface="monospace"
             android:textIsSelectable="true"
-            android:text="" />
+            android:padding="8dp"
+            android:background="@color/md_theme_surfaceVariant"
+            android:text="Đang tải nhật ký..." />
     </ScrollView>
 
 </LinearLayout>

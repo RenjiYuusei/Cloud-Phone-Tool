@@ -154,6 +154,12 @@ class MainActivity : AppCompatActivity() {
         installedListView.adapter = installedAdapter
 
         setupTabs()
+        
+        // Khởi tạo log với thông báo chào mừng
+        logView.text = "" // Clear placeholder text
+        log("=== Cloud Phone Tool v1.1.0 ===")
+        log("Chào mừng! Ứng dụng đã khởi động.")
+        log("Đang tải danh sách ứng dụng...")
 
         loadItems()
         // Nạp preload từ nguồn mặc định (cố định)
@@ -161,10 +167,14 @@ class MainActivity : AppCompatActivity() {
             refreshPreloadedApps(initial = true)
             applyFilter("")
             updateStats()
+            log("Đã tải xong danh sách ứng dụng từ nguồn.")
         }
         updateCachedVersions()
         applyFilter(currentQuery)
         applyInstalledFilter(currentInstalledQuery)
+        
+        // Log thông tin môi trường
+        logEnvForDebug("STARTUP")
     }
 
     private fun setupTabs() {
@@ -775,11 +785,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadItems() {
+        log("Đang tải danh sách ứng dụng đã lưu...")
         val prefs = getSharedPreferences("apk_items", Context.MODE_PRIVATE)
         val json = prefs.getString("list", null)
         val loaded = ApkItem.fromJsonList(json)
         items.clear()
         items.addAll(loaded)
+        log("Đã tải ${items.size} ứng dụng từ bộ nhớ.")
     }
 
     private fun updateCachedVersions() {
