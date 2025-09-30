@@ -225,7 +225,10 @@ class MainActivity : AppCompatActivity() {
         logContainer.visibility = View.VISIBLE
         sourceBar.visibility = View.GONE
         statsBar.visibility = View.GONE
-        scrollLogToBottom()
+        // Ensure log is properly initialized and visible
+        if (::logView.isInitialized) {
+            scrollLogToBottom()
+        }
     }
 
     private fun showInstalledTab() {
