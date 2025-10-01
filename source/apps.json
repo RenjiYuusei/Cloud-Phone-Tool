@@ -33,5 +33,10 @@
     "name": "Roblox (Delta)",
     "url": "https://www.dropbox.com/scl/fi/82pj24z782c0ziylt6xfj/Delta-2.692.843.apk?rlkey=qqc82szh2ypgwi6xw6lfx4waw&st=6wzxn105&dl=0",
     "versionName": "2.692.843"
+  },
+  {
+    "name": "Termux",
+    "url": "https://www.dropbox.com/scl/fi/iwf47vopk2l93c7r8fxod/com.termux_1022.apk?rlkey=x65rkvk6rsfcyu3uekd4ik033&st=yutbtym3&dl=0",
+    "versionName": "0.119.0-beta.3"
   }
 ]
