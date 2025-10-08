@@ -49,13 +49,13 @@ class ApkAdapter(
                 .load(it.iconUrl)
                 .placeholder(R.drawable.ic_apps)
                 .error(R.drawable.ic_apps)
-                .circleCrop()
+                .centerCrop()
                 .into(holder.icon)
         } else {
             // Hiển thị icon mặc định nếu không có iconUrl
             Glide.with(holder.icon.context)
                 .load(R.drawable.ic_apps)
-                .circleCrop()
+                .centerCrop()
                 .into(holder.icon)
         }
         
