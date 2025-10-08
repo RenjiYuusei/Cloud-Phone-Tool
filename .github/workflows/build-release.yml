@@ -186,7 +186,7 @@ jobs:
           Build time: ${{ steps.commit.outputs.build_date }}
         draft: false
         prerelease: false
-        files: app/build/outputs/apk/release/Kasumi.apk
+        files: app/build/outputs/apk/release/Kasumi-release-${{ steps.commit.outputs.short_sha }}.apk
         target_commitish: ${{ github.sha }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
