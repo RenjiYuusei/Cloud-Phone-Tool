@@ -309,7 +309,8 @@ class MainActivity : AppCompatActivity() {
                     url = normalized,
                     uri = null,
                     versionName = exist.versionName ?: p.versionName,
-                    versionCode = exist.versionCode ?: p.versionCode
+                    versionCode = exist.versionCode ?: p.versionCode,
+                    iconUrl = p.iconUrl
                 )
             } else {
                 items.add(
@@ -320,7 +321,8 @@ class MainActivity : AppCompatActivity() {
                         url = normalized,
                         uri = null,
                         versionName = p.versionName,
-                        versionCode = p.versionCode
+                        versionCode = p.versionCode,
+                        iconUrl = p.iconUrl
                     )
                 )
             }
@@ -976,7 +978,8 @@ data class ApkItem(
     val url: String?,
     val uri: String?,
     val versionName: String? = null,
-    val versionCode: Long? = null
+    val versionCode: Long? = null,
+    val iconUrl: String? = null
 ) {
     companion object {
         fun toJsonList(list: List<ApkItem>): String {
@@ -992,7 +995,8 @@ data class ApkItem(
                 sb.append("\"url\":${if (it.url != null) "\"${escape(it.url)}\"" else "null"},")
                 sb.append("\"uri\":${if (it.uri != null) "\"${escape(it.uri)}\"" else "null"},")
                 sb.append("\"versionName\":${if (it.versionName != null) "\"${escape(it.versionName)}\"" else "null"},")
-                sb.append("\"versionCode\":${it.versionCode?.toString() ?: "null"}")
+                sb.append("\"versionCode\":${it.versionCode?.toString() ?: "null"},")
+                sb.append("\"iconUrl\":${if (it.iconUrl != null) "\"${escape(it.iconUrl)}\"" else "null"}")
                 sb.append('}')
             }
             sb.append(']')
@@ -1015,7 +1019,8 @@ data class ApkItem(
                 val uri = map["uri"]
                 val versionName = map["versionName"]
                 val versionCode = map["versionCode"]?.toLongOrNull()
-                list.add(ApkItem(id, name, sourceType, url, uri, versionName, versionCode))
+                val iconUrl = map["iconUrl"]
+                list.add(ApkItem(id, name, sourceType, url, uri, versionName, versionCode, iconUrl))
             }
             return list
         }
@@ -1069,7 +1074,8 @@ data class PreloadApp(
     val name: String,
     val url: String,
     val versionName: String? = null,
-    val versionCode: Long? = null
+    val versionCode: Long? = null,
+    val iconUrl: String? = null
 )
 
 // RootInstaller đã được tách sang file riêng: RootInstaller.kt

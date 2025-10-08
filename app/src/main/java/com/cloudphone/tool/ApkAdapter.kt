@@ -5,9 +5,11 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
+import com.bumptech.glide.Glide
 
 class ApkAdapter(
     private val data: List<ApkItem>,
@@ -19,6 +21,7 @@ class ApkAdapter(
 ) : RecyclerView.Adapter<ApkAdapter.VH>() {
 
     inner class VH(v: View) : RecyclerView.ViewHolder(v) {
+        val icon: ImageView = v.findViewById(R.id.img_app_icon)
         val name: TextView = v.findViewById(R.id.txt_name)
         val src: TextView = v.findViewById(R.id.txt_src)
         val version: TextView = v.findViewById(R.id.txt_version)
@@ -39,7 +42,23 @@ class ApkAdapter(
         holder.name.text = it.name
         // Ẩn hiển thị link tải/nguồn để tránh rối UI
         holder.src.visibility = View.GONE
-        // Không hiển thị icon cho app online
+        
+        // Hiển thị icon từ URL
+        if (!it.iconUrl.isNullOrEmpty()) {
+            Glide.with(holder.icon.context)
+                .load(it.iconUrl)
+                .placeholder(R.drawable.ic_apps)
+                .error(R.drawable.ic_apps)
+                .circleCrop()
+                .into(holder.icon)
+        } else {
+            // Hiển thị icon mặc định nếu không có iconUrl
+            Glide.with(holder.icon.context)
+                .load(R.drawable.ic_apps)
+                .circleCrop()
+                .into(holder.icon)
+        }
+        
         holder.version.text = "Phiên bản: ${it.versionName ?: "(chưa rõ)"}${it.versionCode?.let { c -> " (code $c)" } ?: ""}"
         
         // Hiển thị badge và file size nếu đã cache

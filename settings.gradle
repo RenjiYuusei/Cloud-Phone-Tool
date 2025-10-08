@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Cloud-Phone-Tool"
+rootProject.name = "Kasumi"
 include(":app")
