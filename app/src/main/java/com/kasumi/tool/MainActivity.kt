@@ -54,7 +54,7 @@ class MainActivity : AppCompatActivity() {
             .readTimeout(5, TimeUnit.MINUTES)
             .build()
     }
-    private val DEFAULT_SOURCE_URL = "https://raw.githubusercontent.com/RenjiYuusei/Cloud-Phone-Tool/main/source/apps.json"
+    private val DEFAULT_SOURCE_URL = "https://raw.githubusercontent.com/RenjiYuusei/Kasumi/main/source/apps.json"
 
     private lateinit var listView: RecyclerView
     private lateinit var installedListView: RecyclerView
@@ -157,7 +157,7 @@ class MainActivity : AppCompatActivity() {
         
         // Khởi tạo log với thông báo chào mừng
         logView.text = "" // Clear placeholder text
-        log("=== Cloud Phone Tool v1.1.0 ===")
+        log("=== Kasumi v1.1.0 ===")
         log("Chào mừng! Ứng dụng đã khởi động.")
         log("Đang tải danh sách ứng dụng...")
 

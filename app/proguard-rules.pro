@@ -5,13 +5,25 @@
 -keepattributes *Annotation*
 
 # Giữ lớp dữ liệu parse bằng Gson (tránh đổi tên field)
--keep class com.cloudphone.tool.PreloadApp { *; }
-
-# (Tuỳ chọn) Nếu sau này parse ApkItem bằng Gson, giữ luôn
-#-keep class com.cloudphone.tool.ApkItem { *; }
+-keep class com.kasumi.tool.PreloadApp { *; }
+-keep class com.kasumi.tool.ApkItem { *; }
 
 # Giữ các lớp nội bộ của Gson (thường không bắt buộc, nhưng an toàn)
 -keep class com.google.gson.stream.** { *; }
+-keep class com.google.gson.** { *; }
+
+# Giữ Glide classes
+-keep public class * implements com.bumptech.glide.module.GlideModule
+-keep class * extends com.bumptech.glide.module.AppGlideModule {
+ <init>(...);
+}
+-keep public enum com.bumptech.glide.load.ImageHeaderParser$** {
+  **[] $VALUES;
+  public *;
+}
+-keep class com.bumptech.glide.load.data.ParcelFileDescriptorRewinder$InternalRewinder {
+  *** rewind();
+}
 
 # Ẩn cảnh báo không ảnh hưởng build
 -dontwarn javax.annotation.**
