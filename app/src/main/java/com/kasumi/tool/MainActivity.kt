@@ -466,17 +466,16 @@ class MainActivity : AppCompatActivity() {
                         log("File split không chứa APK hợp lệ: ${apkFile.absolutePath}")
                         return@launch
                     }
-                    log("Đã giải nén ${splits.size} APK: ${splits.joinToString(", ") { it.name }}")
                     val rooted = RootInstaller.isDeviceRooted()
-                    log("Bắt đầu cài đặt (${if (rooted) "root" else "thường"})")
+                    log("Cài đặt ${splits.size} APK qua ${if (rooted) "root" else "session"}")
                     if (rooted) {
                         val resSplit: Pair<Boolean, String> = withContext(Dispatchers.IO) { RootInstaller.installApks(splits) }
                         val (ok, msg) = resSplit
                         if (ok) {
                             toast("Cài đặt thành công")
-                            log("Cài đặt (root) thành công")
+                            log("✓ Cài thành công")
                         } else {
-                            log("Cài đặt (root) thất bại: $msg. Thử cách thường…")
+                            log("Root thất bại: $msg. Thử session...")
                             installSplitsNormally(splits)
                         }
                     } else {
@@ -492,15 +491,15 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 val rooted = RootInstaller.isDeviceRooted()
-                log("Bắt đầu cài đặt (${if (rooted) "root" else "thường"})")
+                log("Cài đặt qua ${if (rooted) "root" else "system installer"}")
                 if (rooted) {
                     val resApk: Pair<Boolean, String> = withContext(Dispatchers.IO) { RootInstaller.installApk(apkFile) }
                     val (ok, msg) = resApk
                     if (ok) {
                         toast("Cài đặt thành công")
-                        log("Cài đặt (root) thành công")
+                        log("✓ Cài thành công")
                     } else {
-                        log("Cài đặt (root) thất bại: $msg. Thử cách thường…")
+                        log("Root thất bại: $msg")
                         installNormally(apkFile)
                     }
                 } else {
@@ -551,7 +550,7 @@ class MainActivity : AppCompatActivity() {
     private suspend fun downloadApk(item: ApkItem): File? = withContext(Dispatchers.IO) {
         val url = item.url ?: return@withContext null
         val normalized = url
-        logBg("Bắt đầu tải: ${item.name} từ $normalized")
+        logBg("Tải: ${item.name}")
         val outFile = cacheFileFor(item)
         val req = Request.Builder()
             .url(normalized)
@@ -567,7 +566,7 @@ class MainActivity : AppCompatActivity() {
                     copyStreamWithProgress(input, out)
                 }
             }
-            logBg("Đã tải xong: ${outFile.absolutePath} (${outFile.length()} B), content-type=${resp.header("Content-Type")}")
+            logBg("Đã tải xong: ${outFile.length() / 1024 / 1024}MB")
             outFile
         }
     }
@@ -585,65 +584,42 @@ class MainActivity : AppCompatActivity() {
         if (outDir.exists()) outDir.deleteRecursively()
         outDir.mkdirs()
         val results = mutableListOf<File>()
-        val seenNames = mutableSetOf<String>()
         
         try {
-            ZipInputStream(FileInputStream(packageFile)).use { zis ->
-                var entry = zis.nextEntry
-                while (entry != null) {
-                    try {
-                        // Bỏ qua thư mục
-                        if (entry.isDirectory) {
-                            entry = zis.nextEntry
-                            continue
-                        }
-                        
-                        val entryName = entry.name.lowercase()
-                        
-                        // Chỉ lấy file .apk, bỏ qua các file khác (icon.png, manifest.json, obb...)
-                        if (!entryName.endsWith(".apk")) {
-                            entry = zis.nextEntry
-                            continue
-                        }
-                        
-                        // Lấy tên file (không bao gồm đường dẫn)
-                        val fileName = entry.name.substringAfterLast('/')
-                        
-                        // Tránh trùng lặp
-                        if (seenNames.contains(fileName)) {
-                            entry = zis.nextEntry
-                            continue
-                        }
-                        seenNames.add(fileName)
-                        
-                        val outFile = File(outDir, fileName)
-                        outFile.parentFile?.mkdirs()
-                        
-                        FileOutputStream(outFile).use { out ->
-                            val buf = ByteArray(8 * 1024)
-                            var read: Int
-                            while (zis.read(buf).also { read = it } != -1) {
-                                out.write(buf, 0, read)
-                            }
-                            out.flush()
-                        }
-                        
-                        results.add(outFile)
-                        logBg("Giải nén: ${fileName} (${outFile.length()} bytes)")
-                    } catch (e: Exception) {
-                        logBg("Lỗi giải nén entry ${entry.name}: ${e.message}")
+            java.util.zip.ZipFile(packageFile).use { zipFile ->
+                val entries = zipFile.entries()
+                while (entries.hasMoreElements()) {
+                    val entry = entries.nextElement()
+                    
+                    // Bỏ qua thư mục và file không phải APK
+                    if (entry.isDirectory || !entry.name.lowercase().endsWith(".apk")) {
+                        continue
                     }
                     
-                    entry = zis.nextEntry
+                    val fileName = entry.name.substringAfterLast('/')
+                    val outFile = File(outDir, fileName)
+                    outFile.parentFile?.mkdirs()
+                    
+                    zipFile.getInputStream(entry).use { input ->
+                        FileOutputStream(outFile).use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    
+                    if (outFile.exists() && outFile.length() > 0) {
+                        results.add(outFile)
+                    }
                 }
             }
         } catch (e: Exception) {
-            logBg("Lỗi giải nén file: ${e.message}")
+            logBg("Lỗi giải nén: ${e.message}")
         }
         
-        // Sắp xếp: base.apk hoặc file APK chính (tên package.apk) trước, config/split sau
+        log("Giải nén ${results.size} APK (${results.sumOf { it.length() / 1024 / 1024 }}MB)")
+        
+        // Sắp xếp: base.apk hoặc file APK chính trước
         return results.sortedWith(compareBy(
-            { !it.name.startsWith("base.") && !it.name.matches(Regex("^[a-z]+\\.[a-z]+\\.[a-z.]+\\.apk$")) },
+            { !it.name.startsWith("base.") && !it.name.contains("com.") },
             { it.name.startsWith("config.") || it.name.startsWith("split_") },
             { it.name }
         ))
