@@ -422,23 +422,6 @@ class MainActivity : AppCompatActivity() {
         adapter.notifyDataSetChanged()
     }
 
-    private fun applyInstalledFilter(q: String) {
-        currentInstalledQuery = q
-        val needle = q.trim().lowercase(Locale.getDefault())
-        installedFilteredItems.clear()
-        if (needle.isEmpty()) {
-            installedFilteredItems.addAll(installedItems)
-        } else {
-            installedFilteredItems.addAll(
-                installedItems.filter {
-                    it.appName.lowercase(Locale.getDefault()).contains(needle)
-                            || it.packageName.lowercase(Locale.getDefault()).contains(needle)
-                }
-            )
-        }
-        installedAdapter.notifyDataSetChanged()
-    }
-
     @Suppress("DEPRECATION")
     private fun extractApkVersion(file: File): Pair<String?, Long?> {
         return try {
