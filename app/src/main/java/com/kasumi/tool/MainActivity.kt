@@ -1144,8 +1144,7 @@ class MainActivity : AppCompatActivity() {
         )
         
         androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("${script.name}")
-            .setMessage("Chọn thư mục lưu:")
+            .setTitle("${script.name} - Chọn thư mục")
             .setItems(options) { _, which ->
                 val targetFolder = when (which) {
                     0 -> "Autoexecute"
