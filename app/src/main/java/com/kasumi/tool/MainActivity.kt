@@ -1138,11 +1138,14 @@ class MainActivity : AppCompatActivity() {
     }
     
     private fun showDownloadFolderDialog(script: ScriptItem) {
-        val options = arrayOf("Auto-execute", "Manual")
+        val options = arrayOf(
+            "Auto-execute (Tự động chạy)",
+            "Manual (Chạy thủ công)"
+        )
         
-        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-            .setTitle("Chọn thư mục lưu script")
-            .setMessage("Script: ${script.name}")
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("${script.name}")
+            .setMessage("Chọn thư mục lưu:")
             .setItems(options) { _, which ->
                 val targetFolder = when (which) {
                     0 -> "Autoexecute"
