@@ -1,0 +1,22 @@
+[
+  {
+    "name": "BlueX Hub",
+    "gameName": "Blox Fruits",
+    "url": "https://raw.githubusercontent.com/Dev-BlueX/BlueX-Hub/refs/heads/main/Main.lua"
+  },
+  {
+    "name": "Maru Hub Premium",
+    "gameName": "Blox Fruits",
+    "url": "https://raw.githubusercontent.com/hnc-roblox/Free/refs/heads/main/MaruHubPremiumFake.HNC%20Roblox.lua"
+  },
+  {
+    "name": "Teddy Hub Kaitun (Full Config)",
+    "gameName": "Blox Fruits",
+    "url": "https://raw.githubusercontent.com/RenjiYuusei/Kasumi/main/source/hard/teddy-kaitun.lua"
+  },
+  {
+    "name": "Infinite Yield",
+    "gameName": "Universal",
+    "url": "https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"
+  }
+]

@@ -57,11 +57,12 @@ class MainActivity : AppCompatActivity() {
             .build()
     }
     private val DEFAULT_SOURCE_URL = "https://raw.githubusercontent.com/RenjiYuusei/Kasumi/main/source/apps.json"
+    private val DEFAULT_SCRIPTS_URL = "https://raw.githubusercontent.com/RenjiYuusei/Kasumi/main/source/scripts.json"
 
     private lateinit var listView: RecyclerView
-    private lateinit var installedListView: RecyclerView
+    private lateinit var scriptListView: RecyclerView
     private lateinit var adapter: ApkAdapter
-    private lateinit var installedAdapter: InstalledAppsAdapter
+    private lateinit var scriptAdapter: ScriptAdapter
     private val items = mutableListOf<ApkItem>()            // nguồn dữ liệu đầy đủ
     private val filteredItems = mutableListOf<ApkItem>()     // danh sách sau khi lọc để hiển thị
     private val preloadedIds = mutableSetOf<String>()
@@ -72,11 +73,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var logContainer: View
     private lateinit var logView: TextView
     private val loadingIds = mutableSetOf<String>()
-    private val installedItems = mutableListOf<InstalledAppItem>()
-    private val installedFilteredItems = mutableListOf<InstalledAppItem>()
+    private val scriptItems = mutableListOf<ScriptItem>()
+    private val scriptFilteredItems = mutableListOf<ScriptItem>()
     private var currentQuery: String = ""
-    private var currentInstalledQuery: String = ""
-    private var currentTab: Int = 0 // 0: Ứng dụng, 1: Đã cài đặt, 2: Nhật ký
+    private var currentScriptQuery: String = ""
+    private var currentTab: Int = 0 // 0: Ứng dụng, 1: Script, 2: Nhật ký
     private var suppressSearchWatcher: Boolean = false
     private lateinit var globalProgress: LinearProgressIndicator
     private lateinit var statsBar: View
@@ -94,7 +95,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         listView = findViewById(R.id.recycler)
-        installedListView = findViewById(R.id.recycler_installed)
+        scriptListView = findViewById(R.id.recycler_installed)
         tabLayout = findViewById(R.id.tab_layout)
         sourceBar = findViewById(R.id.source_bar)
         logContainer = findViewById(R.id.log_container)
@@ -123,7 +124,7 @@ class MainActivity : AppCompatActivity() {
                 if (currentTab == 0) {
                     applyFilter(q)
                 } else if (currentTab == 1) {
-                    applyInstalledFilter(q)
+                    applyScriptFilter(q)
                 }
             }
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
@@ -146,14 +147,16 @@ class MainActivity : AppCompatActivity() {
         listView.addItemDecoration(DividerItemDecoration(this, DividerItemDecoration.VERTICAL))
         listView.adapter = adapter
 
-        installedAdapter = InstalledAppsAdapter(installedFilteredItems,
-            onOpen = { app -> openInstalledApp(app) },
-            onInfo = { app -> openInstalledAppInfo(app) },
-            onUninstall = { app -> uninstallApp(app) }
+        scriptAdapter = ScriptAdapter(scriptFilteredItems,
+            getAutoFile = { script -> getScriptFile(script, "Autoexecute") },
+            getManualFile = { script -> getScriptFile(script, "Scripts") },
+            onExecute = { script -> executeScript(script) },
+            onDownload = { script -> showDownloadFolderDialog(script) },
+            onDelete = { script -> deleteScript(script) }
         )
-        installedListView.layoutManager = LinearLayoutManager(this)
-        installedListView.addItemDecoration(DividerItemDecoration(this, DividerItemDecoration.VERTICAL))
-        installedListView.adapter = installedAdapter
+        scriptListView.layoutManager = LinearLayoutManager(this)
+        scriptListView.addItemDecoration(DividerItemDecoration(this, DividerItemDecoration.VERTICAL))
+        scriptListView.adapter = scriptAdapter
 
         setupTabs()
         
@@ -170,7 +173,13 @@ class MainActivity : AppCompatActivity() {
         }
         updateCachedVersions()
         applyFilter(currentQuery)
-        applyInstalledFilter(currentInstalledQuery)
+        
+        // Load scripts from online source and local folders
+        lifecycleScope.launch {
+            loadScriptsFromOnline()
+            loadScriptsFromLocal()
+            applyScriptFilter(currentScriptQuery)
+        }
         
         // Log thông tin môi trường
         logEnvForDebug("STARTUP")
@@ -202,7 +211,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupTabs() {
         tabLayout.addTab(tabLayout.newTab().setText("Ứng dụng").setIcon(R.drawable.ic_apps))
-        tabLayout.addTab(tabLayout.newTab().setText("Đã cài đặt").setIcon(R.drawable.ic_installed))
+        tabLayout.addTab(tabLayout.newTab().setText("Script").setIcon(R.drawable.ic_installed))
         tabLayout.addTab(tabLayout.newTab().setText("Nhật ký").setIcon(R.drawable.ic_log))
         showAppsTab()
         syncSearchInputWithTab()
@@ -210,7 +219,7 @@ class MainActivity : AppCompatActivity() {
             override fun onTabSelected(tab: TabLayout.Tab) {
                 when (tab.position) {
                     0 -> { currentTab = 0; showAppsTab(); syncSearchInputWithTab() }
-                    1 -> { currentTab = 1; showInstalledTab(); syncSearchInputWithTab() }
+                    1 -> { currentTab = 1; showScriptTab(); syncSearchInputWithTab() }
                     else -> { currentTab = 2; showLogTab(); syncSearchInputWithTab() }
                 }
             }
@@ -229,8 +238,8 @@ class MainActivity : AppCompatActivity() {
                     val want = currentQuery
                     if ((searchInput.text?.toString() ?: "") != want) searchInput.setText(want)
                 }
-                1 -> { // Installed tab
-                    val want = currentInstalledQuery
+                1 -> { // Script tab
+                    val want = currentScriptQuery
                     if ((searchInput.text?.toString() ?: "") != want) searchInput.setText(want)
                 }
                 else -> {
@@ -244,7 +253,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun showAppsTab() {
         listView.visibility = View.VISIBLE
-        installedListView.visibility = View.GONE
+        scriptListView.visibility = View.GONE
         logContainer.visibility = View.GONE
         sourceBar.visibility = View.VISIBLE
         btnRefreshSource.visibility = View.VISIBLE
@@ -254,7 +263,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun showLogTab() {
         listView.visibility = View.GONE
-        installedListView.visibility = View.GONE
+        scriptListView.visibility = View.GONE
         logContainer.visibility = View.VISIBLE
         sourceBar.visibility = View.GONE
         statsBar.visibility = View.GONE
@@ -264,16 +273,14 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun showInstalledTab() {
+    private fun showScriptTab() {
         listView.visibility = View.GONE
         logContainer.visibility = View.GONE
-        installedListView.visibility = View.VISIBLE
+        scriptListView.visibility = View.VISIBLE
         sourceBar.visibility = View.VISIBLE
         btnRefreshSource.visibility = View.GONE
         btnSort.visibility = View.GONE
         statsBar.visibility = View.GONE
-        // nạp danh sách ứng dụng đã cài
-        loadInstalledApps()
     }
 
     private fun log(msg: String) {
@@ -1008,88 +1015,258 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // Khu vực quản lý ứng dụng đã cài đặt
-    private fun loadInstalledApps() {
-        lifecycleScope.launch(Dispatchers.IO) {
+    // Khu vực quản lý Scripts
+    private suspend fun loadScriptsFromOnline() {
+        withContext(Dispatchers.IO) {
             try {
-                val pm = packageManager
-                val pkgs = pm.getInstalledApplications(PackageManager.GET_META_DATA)
-                val list = pkgs.map { appInfo ->
-                    val pkg = appInfo.packageName
-                    val pi = try { pm.getPackageInfo(pkg, 0) } catch (e: Exception) { null }
-                    val vName = pi?.versionName
-                    val vCode = pi?.let { PackageInfoCompat.getLongVersionCode(it) }
-                    InstalledAppItem(
-                        appName = pm.getApplicationLabel(appInfo).toString(),
-                        packageName = pkg,
-                        versionName = vName,
-                        versionCode = vCode,
-                        icon = pm.getApplicationIcon(appInfo)
-                    )
-                }.sortedBy { it.appName.lowercase(Locale.getDefault()) }
-                withContext(Dispatchers.Main) {
-                    installedItems.clear()
-                    installedItems.addAll(list)
-                    applyInstalledFilter(currentInstalledQuery)
-                    log("Nạp danh sách ứng dụng đã cài: ${list.size} ứng dụng")
+                val req = Request.Builder().url(DEFAULT_SCRIPTS_URL).header("User-Agent", "CloudPhoneTool/1.0").build()
+                client.newCall(req).execute().use { resp ->
+                    if (!resp.isSuccessful) {
+                        logBg("Không thể tải danh sách script online: HTTP ${resp.code}")
+                        return@withContext
+                    }
+                    val body = resp.body?.string() ?: return@withContext
+                    val arr: Array<PreloadScript> = Gson().fromJson(body, Array<PreloadScript>::class.java)
+                    
+                    withContext(Dispatchers.Main) {
+                        for (preloadScript in arr) {
+                            val id = stableIdFromUrl(preloadScript.url)
+                            
+                            val existingIndex = scriptItems.indexOfFirst { it.id == id }
+                            if (existingIndex == -1) {
+                                scriptItems.add(
+                                    ScriptItem(
+                                        id = id,
+                                        name = preloadScript.name,
+                                        gameName = preloadScript.gameName,
+                                        url = preloadScript.url
+                                    )
+                                )
+                            }
+                        }
+                        log("Đã tải ${arr.size} script từ nguồn online")
+                    }
                 }
             } catch (e: Exception) {
-                withContext(Dispatchers.Main) { log("Lỗi nạp ứng dụng đã cài: ${e.message}") }
+                logBg("Lỗi tải script online: ${e.message}")
             }
         }
     }
-
-    private fun openInstalledApp(app: InstalledAppItem) {
-        try {
-            val intent = packageManager.getLaunchIntentForPackage(app.packageName)
-            if (intent != null) {
-                startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            } else {
-                toast("Ứng dụng không có Activity khởi chạy")
-            }
-        } catch (e: Exception) {
-            toast("Không mở được ứng dụng: ${e.message}")
-        }
-    }
-
-    private fun openInstalledAppInfo(app: InstalledAppItem) {
-        try {
-            val uri = Uri.parse("package:${app.packageName}")
-            val i = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, uri)
-            startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        } catch (e: Exception) {
-            toast("Không mở được trang thông tin: ${e.message}")
-        }
-    }
-
-    private fun uninstallApp(app: InstalledAppItem) {
-        lifecycleScope.launch {
-            val rooted = RootInstaller.isDeviceRooted()
-            if (rooted) {
-                val resUn: Pair<Boolean, String> = withContext(Dispatchers.IO) { RootInstaller.uninstall(app.packageName) }
-                val (ok, msg) = resUn
-                if (ok) {
-                    toast("Đã gỡ cài đặt (root): ${app.appName}")
-                    log("Gỡ cài đặt (root) thành công: ${app.packageName}. pm: $msg")
-                    loadInstalledApps()
-                } else {
-                    toast("Gỡ (root) thất bại, thử cách thường…")
-                    log("Gỡ (root) thất bại: $msg. Thử cách thường…")
-                    uninstallNormally(app.packageName)
+    
+    private suspend fun loadScriptsFromLocal() {
+        withContext(Dispatchers.IO) {
+            try {
+                val autoExecuteDir = File("/storage/emulated/0/Delta/Autoexecute")
+                val scriptsDir = File("/storage/emulated/0/Delta/Scripts")
+                
+                // Load auto-execute scripts
+                if (autoExecuteDir.exists() && autoExecuteDir.isDirectory) {
+                    autoExecuteDir.listFiles { file -> file.extension == "txt" }?.forEach { file ->
+                        val id = "local_auto_${file.name}"
+                        if (scriptItems.none { it.id == id }) {
+                            scriptItems.add(
+                                ScriptItem(
+                                    id = id,
+                                    name = file.nameWithoutExtension,
+                                    gameName = "Local (Auto)",
+                                    url = null,
+                                    localPath = file.absolutePath
+                                )
+                            )
+                        }
+                    }
                 }
-            } else {
-                uninstallNormally(app.packageName)
+                
+                // Load manual scripts
+                if (scriptsDir.exists() && scriptsDir.isDirectory) {
+                    scriptsDir.listFiles { file -> file.extension == "txt" }?.forEach { file ->
+                        val id = "local_manual_${file.name}"
+                        if (scriptItems.none { it.id == id }) {
+                            scriptItems.add(
+                                ScriptItem(
+                                    id = id,
+                                    name = file.nameWithoutExtension,
+                                    gameName = "Local (Manual)",
+                                    url = null,
+                                    localPath = file.absolutePath
+                                )
+                            )
+                        }
+                    }
+                }
+                
+                withContext(Dispatchers.Main) {
+                    log("Đã nạp script từ thư mục local")
+                }
+            } catch (e: Exception) {
+                logBg("Lỗi tải script local: ${e.message}")
             }
         }
     }
-
-    private fun uninstallNormally(pkg: String) {
+    
+    private fun applyScriptFilter(q: String) {
+        currentScriptQuery = q
+        val needle = q.trim().lowercase(Locale.getDefault())
+        scriptFilteredItems.clear()
+        if (needle.isEmpty()) {
+            scriptFilteredItems.addAll(scriptItems)
+        } else {
+            scriptFilteredItems.addAll(
+                scriptItems.filter {
+                    it.name.lowercase(Locale.getDefault()).contains(needle)
+                            || it.gameName.lowercase(Locale.getDefault()).contains(needle)
+                }
+            )
+        }
+        scriptAdapter.notifyDataSetChanged()
+    }
+    
+    private fun getScriptFile(script: ScriptItem, folderName: String): File {
+        return if (script.localPath != null) {
+            File(script.localPath)
+        } else {
+            val dir = File("/storage/emulated/0/Delta/$folderName")
+            dir.mkdirs()
+            File(dir, "${script.name}.txt")
+        }
+    }
+    
+    private fun showDownloadFolderDialog(script: ScriptItem) {
+        val options = arrayOf(
+            "Auto-execute (/storage/emulated/0/Delta/Autoexecute)",
+            "Manual (/storage/emulated/0/Delta/Scripts)"
+        )
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Chọn thư mục lưu script")
+            .setItems(options) { _, which ->
+                val targetFolder = when (which) {
+                    0 -> "Autoexecute"
+                    else -> "Scripts"
+                }
+                downloadScript(script, targetFolder)
+            }
+            .setNegativeButton("Hủy", null)
+            .show()
+    }
+    
+    private fun executeScript(script: ScriptItem) {
+        lifecycleScope.launch {
+            try {
+                // Check both folders
+                val autoFile = getScriptFile(script, "Autoexecute")
+                val manualFile = getScriptFile(script, "Scripts")
+                
+                val scriptFile = when {
+                    autoFile.exists() -> autoFile
+                    manualFile.exists() -> manualFile
+                    else -> {
+                        toast("Script chưa được tải xuống")
+                        return@launch
+                    }
+                }
+                
+                val scriptContent = withContext(Dispatchers.IO) {
+                    scriptFile.readText()
+                }
+                
+                // Thực thi script (giả lập - cần tích hợp với Delta Executor thực tế)
+                log("Đang thực thi script: ${script.name}")
+                log("Đường dẫn: ${scriptFile.absolutePath}")
+                toast("Thực thi script: ${script.name}")
+                
+                // TODO: Tích hợp với Delta Executor để thực thi script thực sự
+                // Hiện tại chỉ log nội dung
+                log("Nội dung script:\n${scriptContent.take(200)}...")
+                
+            } catch (e: Exception) {
+                toast("Lỗi thực thi: ${e.message}")
+                log("Lỗi thực thi script: ${e.message}")
+            }
+        }
+    }
+    
+    private fun downloadScript(script: ScriptItem, targetFolder: String) {
+        lifecycleScope.launch {
+            try {
+                if (script.url == null) {
+                    toast("Script không có URL")
+                    return@launch
+                }
+                
+                setBusy(true)
+                log("Đang tải script: ${script.name}")
+                
+                // Kiểm tra xem có phải fetch file từ GitHub không
+                val shouldFetchContent = script.url.contains("/source/hard/") || 
+                                        (script.url.startsWith("https://raw.githubusercontent.com") && 
+                                         script.url.contains(".lua"))
+                
+                val scriptContent = if (shouldFetchContent) {
+                    // Fetch nội dung file từ GitHub
+                    withContext(Dispatchers.IO) {
+                        val req = Request.Builder()
+                            .url(script.url)
+                            .header("User-Agent", "Mozilla/5.0 (Android) Kasumi/1.0")
+                            .build()
+                        client.newCall(req).execute().use { resp ->
+                            if (!resp.isSuccessful) {
+                                throw IllegalStateException("HTTP ${resp.code}")
+                            }
+                            resp.body?.string() ?: throw IllegalStateException("Empty response")
+                        }
+                    }
+                } else {
+                    // Wrap URL trong loadstring (cho script đơn giản)
+                    "loadstring(game:HttpGet(\"${script.url}\"))()"
+                }
+                
+                val scriptFile = getScriptFile(script, targetFolder)
+                scriptFile.parentFile?.mkdirs()
+                
+                withContext(Dispatchers.IO) {
+                    scriptFile.writeText(scriptContent)
+                }
+                
+                log("✓ Đã lưu script vào: /Delta/$targetFolder/${script.name}.txt")
+                toast("Đã lưu script vào $targetFolder")
+                applyScriptFilter(currentScriptQuery)
+                
+            } catch (e: Exception) {
+                toast("Lỗi tải script: ${e.message}")
+                log("Lỗi tải script: ${e.message}")
+            } finally {
+                setBusy(false)
+            }
+        }
+    }
+    
+    private fun deleteScript(script: ScriptItem) {
         try {
-            val uri = Uri.parse("package:$pkg")
-            val i = Intent(Intent.ACTION_DELETE, uri)
-            startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            // Check and delete from both folders
+            val autoFile = getScriptFile(script, "Autoexecute")
+            val manualFile = getScriptFile(script, "Scripts")
+            
+            var deleted = false
+            if (autoFile.exists()) {
+                autoFile.delete()
+                log("Đã xóa script từ Autoexecute: ${script.name}")
+                deleted = true
+            }
+            if (manualFile.exists()) {
+                manualFile.delete()
+                log("Đã xóa script từ Scripts: ${script.name}")
+                deleted = true
+            }
+            
+            if (deleted) {
+                toast("Đã xóa script")
+                applyScriptFilter(currentScriptQuery)
+            } else {
+                toast("Script không tồn tại")
+            }
         } catch (e: Exception) {
-            toast("Không thể mở gỡ cài đặt: ${e.message}")
+            toast("Lỗi xóa script: ${e.message}")
+            log("Lỗi xóa script: ${e.message}")
         }
     }
 }
