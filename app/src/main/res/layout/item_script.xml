@@ -55,7 +55,7 @@
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_download"
-                style="@style/Widget.Material3.Button.FilledTonal"
+                style="@style/Widget.Material3.Button.TonalButton"
                 android:layout_width="0dp"
                 android:layout_height="56dp"
                 android:layout_weight="1"

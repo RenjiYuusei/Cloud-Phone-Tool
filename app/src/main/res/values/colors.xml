@@ -37,4 +37,8 @@
     <!-- Card & Elevation -->
     <color name="card_bg">#1E1E1E</color>
     <color name="elevated_surface">#242424</color>
+    
+    <!-- Gradient colors -->
+    <color name="card_bg_start">#2C2C2E</color>
+    <color name="card_bg_end">#1C1C1E</color>
 </resources>
