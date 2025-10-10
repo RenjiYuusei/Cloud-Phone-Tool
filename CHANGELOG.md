@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1] - 2025-10-10
+### 🎯 Chức năng mới
+- **Hỗ trợ XAPK**: Thêm khả năng cài đặt file XAPK (cùng với APK và APKS đã hỗ trợ)
+  - Tự động phát hiện và giải nén file XAPK
+  - Cài đặt split APK từ file XAPK qua root hoặc cách thường
+  - Tương thích với các file từ APKPure, APKMirror và các nguồn khác
+
 ## [1.1.0] - 2025-09-30 (Update 2)
 
 ### ✨ Cải tiến giao diện

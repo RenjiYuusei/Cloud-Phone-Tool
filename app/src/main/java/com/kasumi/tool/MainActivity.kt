@@ -157,7 +157,7 @@ class MainActivity : AppCompatActivity() {
         
         // Khởi tạo log với thông báo chào mừng
         logView.text = "" // Clear placeholder text
-        log("=== Kasumi v1.1.0 ===")
+        log("=== Kasumi v1.1.1 ===")
         log("Chào mừng! Ứng dụng đã khởi động.")
         log("Đang tải danh sách ứng dụng...")
 
@@ -458,14 +458,16 @@ class MainActivity : AppCompatActivity() {
                     return@launch
                 }
 
-                val isApks = (item.url?.lowercase(Locale.ROOT)?.contains(".apks") == true)
-                        || apkFile.name.lowercase(Locale.ROOT).endsWith(".apks")
-                if (isApks) {
-                    // Xử lý cài đặt gói chia nhỏ (.apks)
-                    val splits = withContext(Dispatchers.IO) { extractSplitsFromApks(apkFile) }
+                val urlLower = item.url?.lowercase(Locale.ROOT)
+                val fileNameLower = apkFile.name.lowercase(Locale.ROOT)
+                val isSplitPackage = (urlLower?.contains(".apks") == true || fileNameLower.endsWith(".apks"))
+                        || (urlLower?.contains(".xapk") == true || fileNameLower.endsWith(".xapk"))
+                if (isSplitPackage) {
+                    // Xử lý cài đặt gói chia nhỏ (.apks hoặc .xapk)
+                    val splits = withContext(Dispatchers.IO) { extractSplitsFromPackage(apkFile) }
                     if (splits.isEmpty()) {
-                        toast("Không tìm thấy APK bên trong file .apks")
-                        log(".apks không chứa APK hợp lệ: ${apkFile.absolutePath}")
+                        toast("Không tìm thấy APK bên trong file")
+                        log("File split không chứa APK hợp lệ: ${apkFile.absolutePath}")
                         return@launch
                     }
                     logEnvForDebug("install:start-split")
@@ -588,17 +590,17 @@ class MainActivity : AppCompatActivity() {
 
     private fun ensureApkExtension(name: String): String {
         val lower = name.lowercase(Locale.ROOT)
-        return if (lower.endsWith(".apk") || lower.endsWith(".apks")) name else "$name.apk"
+        return if (lower.endsWith(".apk") || lower.endsWith(".apks") || lower.endsWith(".xapk")) name else "$name.apk"
     }
 
-    // Giải nén file .apks để lấy danh sách các APK (base + split)
-    private fun extractSplitsFromApks(apksFile: File): List<File> {
-        val outDir = File(cacheDir, "splits/${apksFile.nameWithoutExtension}")
+    // Giải nén file .apks hoặc .xapk để lấy danh sách các APK (base + split)
+    private fun extractSplitsFromPackage(packageFile: File): List<File> {
+        val outDir = File(cacheDir, "splits/${packageFile.nameWithoutExtension}")
         if (outDir.exists()) outDir.deleteRecursively()
         outDir.mkdirs()
         val results = mutableListOf<File>()
         try {
-            ZipInputStream(FileInputStream(apksFile)).use { zis ->
+            ZipInputStream(FileInputStream(packageFile)).use { zis ->
                 while (true) {
                     val entry = zis.nextEntry ?: break
                     if (!entry.isDirectory && entry.name.endsWith(".apk")) {
@@ -618,7 +620,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         } catch (e: Exception) {
-            log("Lỗi giải nén .apks: ${e.message}")
+            log("Lỗi giải nén file split (APKS/XAPK): ${e.message}")
         }
         // Đảm bảo base.apk (nếu có) đứng đầu danh sách
         return results.sortedWith(compareBy({ it.name != "base.apk" }, { it.name }))
@@ -705,7 +707,11 @@ class MainActivity : AppCompatActivity() {
         val dir = File(cacheDir, "apks").apply { mkdirs() }
         val ext = try {
             val u = item.url?.lowercase(Locale.ROOT)
-            if (u != null && u.contains(".apks")) "apks" else "apk"
+            when {
+                u != null && u.contains(".xapk") -> "xapk"
+                u != null && u.contains(".apks") -> "apks"
+                else -> "apk"
+            }
         } catch (_: Exception) { "apk" }
         return File(dir, "${item.id}.$ext")
     }
