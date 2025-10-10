@@ -554,7 +554,7 @@ class MainActivity : AppCompatActivity() {
         val outFile = cacheFileFor(item)
         val req = Request.Builder()
             .url(normalized)
-            .header("User-Agent", "Mozilla/5.0 (Android) CloudPhoneTool/1.0")
+            .header("User-Agent", "Mozilla/5.0 (Android) Kasumi/1.0")
             .build()
         client.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) {
