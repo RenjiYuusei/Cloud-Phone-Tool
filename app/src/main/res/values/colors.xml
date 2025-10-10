@@ -1,30 +1,40 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Material Design 3 - Light Theme Colors -->
-    <color name="md_theme_primary">#6750A4</color>
-    <color name="md_theme_onPrimary">#FFFFFF</color>
-    <color name="md_theme_primaryContainer">#EADDFF</color>
-    <color name="md_theme_onPrimaryContainer">#21005D</color>
+    <!-- Material Design 3 - Dark Theme (Modern) -->
+    <color name="md_theme_primary">#BB86FC</color>
+    <color name="md_theme_onPrimary">#000000</color>
+    <color name="md_theme_primaryContainer">#3700B3</color>
+    <color name="md_theme_onPrimaryContainer">#E1BFFF</color>
     
-    <color name="md_theme_secondary">#625B71</color>
-    <color name="md_theme_onSecondary">#FFFFFF</color>
-    <color name="md_theme_secondaryContainer">#E8DEF8</color>
-    <color name="md_theme_onSecondaryContainer">#1D192B</color>
+    <color name="md_theme_secondary">#03DAC6</color>
+    <color name="md_theme_onSecondary">#000000</color>
+    <color name="md_theme_secondaryContainer">#018786</color>
+    <color name="md_theme_onSecondaryContainer">#A7FFF7</color>
     
-    <color name="md_theme_surface">#1C1B1F</color>
-    <color name="md_theme_onSurface">#E6E1E5</color>
-    <color name="md_theme_surfaceVariant">#49454F</color>
-    <color name="md_theme_onSurfaceVariant">#CAC4D0</color>
+    <!-- Dark Background -->
+    <color name="md_theme_background">#0D0D0D</color>
+    <color name="md_theme_onBackground">#E4E4E4</color>
     
-    <color name="md_theme_error">#F2B8B5</color>
-    <color name="md_theme_onError">#601410</color>
+    <!-- Surface colors (cards, dialogs) -->
+    <color name="md_theme_surface">#1A1A1A</color>
+    <color name="md_theme_onSurface">#E8E8E8</color>
+    <color name="md_theme_surfaceVariant">#2B2B2B</color>
+    <color name="md_theme_onSurfaceVariant">#BDBDBD</color>
+    
+    <!-- Outline -->
+    <color name="md_theme_outline">#3D3D3D</color>
+    
+    <!-- Error -->
+    <color name="md_theme_error">#CF6679</color>
+    <color name="md_theme_onError">#000000</color>
     
     <!-- Custom App Colors -->
     <color name="success_green">#4CAF50</color>
     <color name="warning_orange">#FF9800</color>
     <color name="info_blue">#2196F3</color>
+    <color name="delete_red">#F44336</color>
     
-    <!-- Card Background Gradient -->
-    <color name="card_bg_start">#2C2C2E</color>
-    <color name="card_bg_end">#1C1C1E</color>
+    <!-- Card & Elevation -->
+    <color name="card_bg">#1E1E1E</color>
+    <color name="elevated_surface">#242424</color>
 </resources>

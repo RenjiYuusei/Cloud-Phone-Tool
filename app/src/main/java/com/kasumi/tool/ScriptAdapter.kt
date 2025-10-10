@@ -30,7 +30,7 @@ class ScriptAdapter(
     override fun onBindViewHolder(holder: VH, position: Int) {
         val item = data[position]
         holder.name.text = item.name
-        holder.gameName.text = "🎮 ${item.gameName}"
+        holder.gameName.text = item.gameName
         
         // Luôn hiển thị cả 2 nút
         holder.btnDownload.setOnClickListener { onDownload(item) }

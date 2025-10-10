@@ -93,6 +93,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Force dark mode
+        AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
         setContentView(R.layout.activity_main)
 
         listView = findViewById(R.id.recycler)
@@ -233,14 +235,17 @@ class MainActivity : AppCompatActivity() {
         try {
             when (currentTab) {
                 0 -> { // Apps tab
+                    searchInput.hint = "Tìm kiếm ứng dụng..."
                     val want = currentQuery
                     if ((searchInput.text?.toString() ?: "") != want) searchInput.setText(want)
                 }
                 1 -> { // Script tab
+                    searchInput.hint = "Tìm kiếm script..."
                     val want = currentScriptQuery
                     if ((searchInput.text?.toString() ?: "") != want) searchInput.setText(want)
                 }
                 else -> {
+                    searchInput.hint = ""
                     if (!searchInput.text.isNullOrEmpty()) searchInput.setText("")
                 }
             }
@@ -1135,12 +1140,11 @@ class MainActivity : AppCompatActivity() {
     }
     
     private fun showDownloadFolderDialog(script: ScriptItem) {
-        val options = arrayOf(
-            "Auto-execute (/storage/emulated/0/Delta/Autoexecute)",
-            "Manual (/storage/emulated/0/Delta/Scripts)"
-        )
-        androidx.appcompat.app.AlertDialog.Builder(this)
+        val options = arrayOf("Auto-execute", "Manual")
+        
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
             .setTitle("Chọn thư mục lưu script")
+            .setMessage("Script: ${script.name}")
             .setItems(options) { _, which ->
                 val targetFolder = when (which) {
                     0 -> "Autoexecute"
