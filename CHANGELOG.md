@@ -7,6 +7,9 @@
   - Cài đặt split APK từ file XAPK qua root hoặc cách thường
   - Tương thích với các file từ APKPure, APKMirror và các nguồn khác
 
+### 🐛 Sửa lỗi
+- **Clear cache**: Sửa lỗi nút xóa cache không xóa hết - giờ đã xóa cả thư mục splits đã giải nén
+
 ## [1.1.0] - 2025-09-30 (Update 2)
 
 ### ✨ Cải tiến giao diện

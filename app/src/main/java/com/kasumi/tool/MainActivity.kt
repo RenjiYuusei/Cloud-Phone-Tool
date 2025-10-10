@@ -861,19 +861,29 @@ class MainActivity : AppCompatActivity() {
     
     private fun clearCache() {
         lifecycleScope.launch(Dispatchers.IO) {
-            val cacheDir = File(cacheDir, "apks")
+            val apkCacheDir = File(cacheDir, "apks")
+            val splitsDir = File(cacheDir, "splits")
             var count = 0
             var size = 0L
-            if (cacheDir.exists()) {
-                cacheDir.listFiles()?.forEach { file ->
+            
+            // Xóa cache APK/APKS/XAPK
+            if (apkCacheDir.exists()) {
+                apkCacheDir.listFiles()?.forEach { file ->
                     size += file.length()
                     file.delete()
                     count++
                 }
             }
+            
+            // Xóa thư mục splits đã giải nén
+            if (splitsDir.exists()) {
+                splitsDir.deleteRecursively()
+            }
+            
             withContext(Dispatchers.Main) {
                 val sizeStr = formatFileSize(size)
                 toast(getString(R.string.cache_cleared, count, sizeStr))
+                log("Đã xóa cache: $count tệp ($sizeStr)")
                 updateStats()
                 applyFilter(currentQuery)
             }
