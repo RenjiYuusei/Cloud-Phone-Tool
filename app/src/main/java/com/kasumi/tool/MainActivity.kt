@@ -470,24 +470,20 @@ class MainActivity : AppCompatActivity() {
                         log("File split không chứa APK hợp lệ: ${apkFile.absolutePath}")
                         return@launch
                     }
-                    logEnvForDebug("install:start-split")
+                    log("Đã giải nén ${splits.size} APK: ${splits.joinToString(", ") { it.name }}")
                     val rooted = RootInstaller.isDeviceRooted()
-                    log("Thiết bị root: $rooted. Bắt đầu cài đặt (split) ${item.name}")
+                    log("Bắt đầu cài đặt (${if (rooted) "root" else "thường"})")
                     if (rooted) {
                         val resSplit: Pair<Boolean, String> = withContext(Dispatchers.IO) { RootInstaller.installApks(splits) }
                         val (ok, msg) = resSplit
                         if (ok) {
-                            toast("Cài đặt (root) thành công")
-                            log("Cài đặt (root) thành công (split). pm: $msg")
-                            logEnvForDebug("install:root-success-split")
+                            toast("Cài đặt thành công")
+                            log("Cài đặt (root) thành công")
                         } else {
-                            toast("Cài đặt (root) thất bại: $msg. Thử cách thường…")
-                            log("Cài đặt (root) thất bại (split): $msg. Thử cách thường…")
-                            logEnvForDebug("install:root-fail-split")
+                            log("Cài đặt (root) thất bại: $msg. Thử cách thường…")
                             installSplitsNormally(splits)
                         }
                     } else {
-                        logEnvForDebug("install:no-root-split")
                         installSplitsNormally(splits)
                     }
                     return@launch
@@ -500,24 +496,18 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 val rooted = RootInstaller.isDeviceRooted()
-                logEnvForDebug("install:start-apk")
-                log("Thiết bị root: $rooted. Bắt đầu cài đặt ${item.name}")
+                log("Bắt đầu cài đặt (${if (rooted) "root" else "thường"})")
                 if (rooted) {
                     val resApk: Pair<Boolean, String> = withContext(Dispatchers.IO) { RootInstaller.installApk(apkFile) }
                     val (ok, msg) = resApk
                     if (ok) {
-                        toast("Cài đặt (root) thành công")
-                        log("Cài đặt (root) thành công. pm output: $msg")
-                        logEnvForDebug("install:root-success-apk")
+                        toast("Cài đặt thành công")
+                        log("Cài đặt (root) thành công")
                     } else {
-                        toast("Cài đặt (root) thất bại: $msg. Thử cách thường…")
                         log("Cài đặt (root) thất bại: $msg. Thử cách thường…")
-                        logEnvForDebug("install:root-fail-apk")
                         installNormally(apkFile)
                     }
                 } else {
-                    logEnvForDebug("install:no-root-apk")
-                    log("Mở trình cài đặt thường (FileProvider)")
                     installNormally(apkFile)
                 }
             } catch (e: Exception) {
@@ -603,27 +593,41 @@ class MainActivity : AppCompatActivity() {
             ZipInputStream(FileInputStream(packageFile)).use { zis ->
                 while (true) {
                     val entry = zis.nextEntry ?: break
-                    if (!entry.isDirectory && entry.name.endsWith(".apk")) {
-                        val outFile = File(outDir, entry.name.substringAfterLast('/'))
-                        outFile.outputStream().use { out ->
-                            val buf = ByteArray(8 * 1024)
-                            while (true) {
-                                val r = zis.read(buf)
-                                if (r == -1) break
-                                out.write(buf, 0, r)
-                            }
-                            out.flush()
-                        }
-                        results.add(outFile)
+                    // Bỏ qua thư mục và các file không phải APK
+                    if (entry.isDirectory || !entry.name.lowercase().endsWith(".apk")) {
+                        zis.closeEntry()
+                        continue
                     }
+                    
+                    // Lấy tên file (không bao gồm đường dẫn)
+                    val fileName = entry.name.substringAfterLast('/')
+                    
+                    // XAPK: file chính thường là <package>.apk, không phải base.apk
+                    // APKS: có base.apk + split APKs
+                    val outFile = File(outDir, fileName)
+                    outFile.outputStream().use { out ->
+                        val buf = ByteArray(8 * 1024)
+                        while (true) {
+                            val r = zis.read(buf)
+                            if (r == -1) break
+                            out.write(buf, 0, r)
+                        }
+                        out.flush()
+                    }
+                    results.add(outFile)
                     zis.closeEntry()
                 }
             }
         } catch (e: Exception) {
-            log("Lỗi giải nén file split (APKS/XAPK): ${e.message}")
+            logBg("Lỗi giải nén file split: ${e.message}")
         }
-        // Đảm bảo base.apk (nếu có) đứng đầu danh sách
-        return results.sortedWith(compareBy({ it.name != "base.apk" }, { it.name }))
+        
+        // Sắp xếp: base.apk hoặc file APK chính (tên package) trước, config/split sau
+        return results.sortedWith(compareBy(
+            { it.name != "base.apk" && !it.name.contains("com.") },  // APK chính lên đầu
+            { it.name.startsWith("config.") || it.name.startsWith("split_") },  // Config/split xuống sau
+            { it.name }
+        ))
     }
 
     // Cài đặt nhiều APK (split) theo cách thường bằng PackageInstaller
