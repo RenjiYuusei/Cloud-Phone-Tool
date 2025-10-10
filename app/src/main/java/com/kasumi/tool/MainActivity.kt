@@ -11,6 +11,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import org.json.JSONArray
 import org.json.JSONObject
 import android.provider.Settings
 import android.view.LayoutInflater
@@ -1009,31 +1010,53 @@ class MainActivity : AppCompatActivity() {
                         return@withContext
                     }
                     val body = resp.body?.string() ?: return@withContext
-                    val arr: Array<PreloadScript> = Gson().fromJson(body, Array<PreloadScript>::class.java)
+                    
+                    // Parse JSON thủ công để tránh lỗi ProGuard
+                    val scripts = parseScriptsJson(body)
                     
                     withContext(Dispatchers.Main) {
-                        for (preloadScript in arr) {
-                            val id = stableIdFromUrl(preloadScript.url)
+                        for (script in scripts) {
+                            val id = stableIdFromUrl(script.url)
                             
                             val existingIndex = scriptItems.indexOfFirst { it.id == id }
                             if (existingIndex == -1) {
                                 scriptItems.add(
                                     ScriptItem(
                                         id = id,
-                                        name = preloadScript.name,
-                                        gameName = preloadScript.gameName,
-                                        url = preloadScript.url
+                                        name = script.name,
+                                        gameName = script.gameName,
+                                        url = script.url
                                     )
                                 )
                             }
                         }
-                        log("Đã tải ${arr.size} script từ nguồn online")
+                        log("Đã tải ${scripts.size} script từ nguồn online")
                     }
                 }
             } catch (e: Exception) {
                 logBg("Lỗi tải script online: ${e.message}")
             }
         }
+    }
+    
+    private fun parseScriptsJson(json: String): List<PreloadScript> {
+        val result = mutableListOf<PreloadScript>()
+        try {
+            val jsonArray = org.json.JSONArray(json)
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                result.add(
+                    PreloadScript(
+                        name = obj.getString("name"),
+                        gameName = obj.getString("gameName"),
+                        url = obj.getString("url")
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            logBg("Lỗi parse scripts.json: ${e.message}")
+        }
+        return result
     }
     
     private suspend fun loadScriptsFromLocal() {
