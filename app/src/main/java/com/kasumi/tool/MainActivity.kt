@@ -149,9 +149,6 @@ class MainActivity : AppCompatActivity() {
         listView.adapter = adapter
 
         scriptAdapter = ScriptAdapter(scriptFilteredItems,
-            getAutoFile = { script -> getScriptFile(script, "Autoexecute") },
-            getManualFile = { script -> getScriptFile(script, "Scripts") },
-            onExecute = { script -> executeScript(script) },
             onDownload = { script -> showDownloadFolderDialog(script) },
             onDelete = { script -> deleteScript(script) }
         )
@@ -1155,42 +1152,6 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
     
-    private fun executeScript(script: ScriptItem) {
-        lifecycleScope.launch {
-            try {
-                // Check both folders
-                val autoFile = getScriptFile(script, "Autoexecute")
-                val manualFile = getScriptFile(script, "Scripts")
-                
-                val scriptFile = when {
-                    autoFile.exists() -> autoFile
-                    manualFile.exists() -> manualFile
-                    else -> {
-                        toast("Script chưa được tải xuống")
-                        return@launch
-                    }
-                }
-                
-                val scriptContent = withContext(Dispatchers.IO) {
-                    scriptFile.readText()
-                }
-                
-                // Thực thi script (giả lập - cần tích hợp với Delta Executor thực tế)
-                log("Đang thực thi script: ${script.name}")
-                log("Đường dẫn: ${scriptFile.absolutePath}")
-                toast("Thực thi script: ${script.name}")
-                
-                // TODO: Tích hợp với Delta Executor để thực thi script thực sự
-                // Hiện tại chỉ log nội dung
-                log("Nội dung script:\n${scriptContent.take(200)}...")
-                
-            } catch (e: Exception) {
-                toast("Lỗi thực thi: ${e.message}")
-                log("Lỗi thực thi script: ${e.message}")
-            }
-        }
-    }
-    
     private fun downloadScript(script: ScriptItem, targetFolder: String) {
         lifecycleScope.launch {
             try {
@@ -1202,13 +1163,12 @@ class MainActivity : AppCompatActivity() {
                 setBusy(true)
                 log("Đang tải script: ${script.name}")
                 
-                // Kiểm tra xem có phải fetch file từ GitHub không
-                val shouldFetchContent = script.url.contains("/source/hard/") || 
-                                        (script.url.startsWith("https://raw.githubusercontent.com") && 
-                                         script.url.contains(".lua"))
+                // Chỉ fetch nội dung file nếu là script đặc biệt trong /source/hard/
+                val shouldFetchContent = script.url.contains("/source/hard/")
                 
                 val scriptContent = if (shouldFetchContent) {
-                    // Fetch nội dung file từ GitHub
+                    // Fetch toàn bộ nội dung file (có config)
+                    log("Tải script đặc biệt (full content): ${script.name}")
                     withContext(Dispatchers.IO) {
                         val req = Request.Builder()
                             .url(script.url)
@@ -1222,7 +1182,8 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                 } else {
-                    // Wrap URL trong loadstring (cho script đơn giản)
+                    // Wrap URL trong loadstring (script thông thường)
+                    log("Tạo script loadstring: ${script.name}")
                     "loadstring(game:HttpGet(\"${script.url}\"))()"
                 }
                 
