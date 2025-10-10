@@ -10,6 +10,8 @@ import android.content.pm.PackageInstaller
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import org.json.JSONObject
 import android.provider.Settings
 import android.view.LayoutInflater
 import android.view.View
@@ -172,6 +174,30 @@ class MainActivity : AppCompatActivity() {
         
         // Log thông tin môi trường
         logEnvForDebug("STARTUP")
+        
+        // Yêu cầu quyền storage (cần cho OBB)
+        requestStoragePermission()
+    }
+    
+    private fun requestStoragePermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!Environment.isExternalStorageManager()) {
+                try {
+                    val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                    intent.data = Uri.parse("package:$packageName")
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                    startActivity(intent)
+                }
+            }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val permissions = arrayOf(
+                android.Manifest.permission.READ_EXTERNAL_STORAGE,
+                android.Manifest.permission.WRITE_EXTERNAL_STORAGE
+            )
+            requestPermissions(permissions, 100)
+        }
     }
 
     private fun setupTabs() {
@@ -460,12 +486,18 @@ class MainActivity : AppCompatActivity() {
                         || (urlLower?.contains(".xapk") == true || fileNameLower.endsWith(".xapk"))
                 if (isSplitPackage) {
                     // Xử lý cài đặt gói chia nhỏ (.apks hoặc .xapk)
-                    val splits = withContext(Dispatchers.IO) { extractSplitsFromPackage(apkFile) }
+                    val (splits, obbInfo) = withContext(Dispatchers.IO) { extractSplitsAndObb(apkFile) }
                     if (splits.isEmpty()) {
                         toast("Không tìm thấy APK bên trong file")
                         log("File split không chứa APK hợp lệ: ${apkFile.absolutePath}")
                         return@launch
                     }
+                    
+                    // Copy OBB nếu có
+                    if (obbInfo != null) {
+                        withContext(Dispatchers.IO) { installObbFiles(obbInfo) }
+                    }
+                    
                     val rooted = RootInstaller.isDeviceRooted()
                     log("Cài đặt ${splits.size} APK qua ${if (rooted) "root" else "session"}")
                     if (rooted) {
@@ -578,12 +610,16 @@ class MainActivity : AppCompatActivity() {
         return if (lower.endsWith(".apk") || lower.endsWith(".apks") || lower.endsWith(".xapk")) name else "$name.apk"
     }
 
-    // Giải nén file .apks hoặc .xapk để lấy danh sách các APK (base + split)
-    private fun extractSplitsFromPackage(packageFile: File): List<File> {
+    data class ObbInfo(val packageName: String, val obbFiles: List<File>)
+    
+    // Giải nén file .apks hoặc .xapk để lấy danh sách các APK và OBB
+    private fun extractSplitsAndObb(packageFile: File): Pair<List<File>, ObbInfo?> {
         val outDir = File(cacheDir, "splits/${packageFile.nameWithoutExtension}")
         if (outDir.exists()) outDir.deleteRecursively()
         outDir.mkdirs()
         val results = mutableListOf<File>()
+        val obbFiles = mutableListOf<File>()
+        var packageName: String? = null
         
         try {
             java.util.zip.ZipFile(packageFile).use { zipFile ->
@@ -591,23 +627,53 @@ class MainActivity : AppCompatActivity() {
                 while (entries.hasMoreElements()) {
                     val entry = entries.nextElement()
                     
-                    // Bỏ qua thư mục và file không phải APK
-                    if (entry.isDirectory || !entry.name.lowercase().endsWith(".apk")) {
+                    if (entry.isDirectory) continue
+                    
+                    val entryName = entry.name.lowercase()
+                    val fileName = entry.name.substringAfterLast('/')
+                    
+                    // Đọc manifest.json để lấy package name
+                    if (entryName.endsWith("manifest.json")) {
+                        try {
+                            val manifest = zipFile.getInputStream(entry).bufferedReader().readText()
+                            packageName = JSONObject(manifest).optString("package_name")
+                        } catch (e: Exception) {}
                         continue
                     }
                     
-                    val fileName = entry.name.substringAfterLast('/')
-                    val outFile = File(outDir, fileName)
-                    outFile.parentFile?.mkdirs()
-                    
-                    zipFile.getInputStream(entry).use { input ->
-                        FileOutputStream(outFile).use { output ->
-                            input.copyTo(output)
+                    // Giải nén APK
+                    if (entryName.endsWith(".apk")) {
+                        val outFile = File(outDir, fileName)
+                        outFile.parentFile?.mkdirs()
+                        
+                        zipFile.getInputStream(entry).use { input ->
+                            FileOutputStream(outFile).use { output ->
+                                input.copyTo(output)
+                            }
                         }
+                        
+                        if (outFile.exists() && outFile.length() > 0) {
+                            results.add(outFile)
+                        }
+                        continue
                     }
                     
-                    if (outFile.exists() && outFile.length() > 0) {
-                        results.add(outFile)
+                    // Giải nén OBB
+                    if (entryName.endsWith(".obb")) {
+                        val obbDir = File(cacheDir, "obb")
+                        obbDir.mkdirs()
+                        val outFile = File(obbDir, fileName)
+                        
+                        zipFile.getInputStream(entry).use { input ->
+                            FileOutputStream(outFile).use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                        
+                        if (outFile.exists() && outFile.length() > 0) {
+                            obbFiles.add(outFile)
+                        }
+                        continue
                     }
                 }
             }
@@ -615,14 +681,54 @@ class MainActivity : AppCompatActivity() {
             logBg("Lỗi giải nén: ${e.message}")
         }
         
-        log("Giải nén ${results.size} APK (${results.sumOf { it.length() / 1024 / 1024 }}MB)")
+        val apkSizeMB = results.sumOf { it.length() / 1024 / 1024 }
+        val obbSizeMB = obbFiles.sumOf { it.length() / 1024 / 1024 }
+        logBg("Giải nén ${results.size} APK (${apkSizeMB}MB)" + 
+            if (obbFiles.isNotEmpty()) ", ${obbFiles.size} OBB (${obbSizeMB}MB)" else "")
         
-        // Sắp xếp: base.apk hoặc file APK chính trước
-        return results.sortedWith(compareBy(
+        // Sắp xếp APK: base.apk hoặc file APK chính trước
+        val sortedApks = results.sortedWith(compareBy(
             { !it.name.startsWith("base.") && !it.name.contains("com.") },
             { it.name.startsWith("config.") || it.name.startsWith("split_") },
             { it.name }
         ))
+        
+        val obbInfo = if (obbFiles.isNotEmpty() && packageName != null) {
+            ObbInfo(packageName, obbFiles)
+        } else null
+        
+        return sortedApks to obbInfo
+    }
+    
+    private fun installObbFiles(obbInfo: ObbInfo) {
+        try {
+            // Kiểm tra quyền storage
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                if (!Environment.isExternalStorageManager()) {
+                    logBg("Cần quyền quản lý storage để copy OBB")
+                    return
+                }
+            }
+            
+            val obbDir = File(Environment.getExternalStorageDirectory(), "Android/obb/${obbInfo.packageName}")
+            if (!obbDir.exists()) {
+                obbDir.mkdirs()
+            }
+            
+            for (obbFile in obbInfo.obbFiles) {
+                val destFile = File(obbDir, obbFile.name)
+                obbFile.inputStream().use { input ->
+                    FileOutputStream(destFile).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                logBg("Copy OBB: ${obbFile.name} (${obbFile.length() / 1024 / 1024}MB)")
+            }
+            
+            logBg("✓ Đã copy ${obbInfo.obbFiles.size} file OBB vào /Android/obb/${obbInfo.packageName}")
+        } catch (e: Exception) {
+            logBg("Lỗi copy OBB: ${e.message}")
+        }
     }
 
     // Cài đặt nhiều APK (split) theo cách thường bằng PackageInstaller
@@ -860,6 +966,7 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch(Dispatchers.IO) {
             val apkCacheDir = File(cacheDir, "apks")
             val splitsDir = File(cacheDir, "splits")
+            val obbCacheDir = File(cacheDir, "obb")
             var count = 0
             var size = 0L
             
@@ -875,6 +982,11 @@ class MainActivity : AppCompatActivity() {
             // Xóa thư mục splits đã giải nén
             if (splitsDir.exists()) {
                 splitsDir.deleteRecursively()
+            }
+            
+            // Xóa cache OBB
+            if (obbCacheDir.exists()) {
+                obbCacheDir.deleteRecursively()
             }
             
             withContext(Dispatchers.Main) {

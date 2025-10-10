@@ -2,10 +2,13 @@
 
 ## [1.1.1] - 2025-10-10
 ### 🎯 Chức năng mới
-- **Hỗ trợ XAPK**: Thêm khả năng cài đặt file XAPK (cùng với APK và APKS đã hỗ trợ)
+- **Hỗ trợ XAPK hoàn chỉnh**: Thêm khả năng cài đặt file XAPK (cùng với APK và APKS đã hỗ trợ)
   - Tự động phát hiện và giải nén file XAPK
   - Cài đặt split APK từ file XAPK qua root hoặc cách thường
+  - **Tự động copy OBB**: Giải nén và copy file OBB vào `/Android/obb/<package>/`
+  - Parse manifest.json để lấy package name chính xác
   - Tương thích với các file từ APKPure, APKMirror và các nguồn khác
+- **Quyền Storage**: Tự động yêu cầu quyền quản lý storage để copy OBB
 
 ### 🐛 Sửa lỗi
 - **Clear cache**: Sửa lỗi nút xóa cache không xóa hết - giờ đã xóa cả thư mục splits đã giải nén
