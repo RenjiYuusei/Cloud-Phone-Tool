@@ -19,7 +19,7 @@
         app:tabTextColor="?attr/colorOnSurfaceVariant"
         app:tabIconTint="?attr/colorPrimary"
         app:tabMode="fixed"
-        app:tabRippleColor="?attr/colorPrimaryContainer" />
+        app:tabRippleColor="@android:color/transparent" />
 
     <com.google.android.material.progressindicator.LinearProgressIndicator
         android:id="@+id/global_progress"

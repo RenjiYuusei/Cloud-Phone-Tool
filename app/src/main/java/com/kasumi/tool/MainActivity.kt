@@ -280,9 +280,7 @@ class MainActivity : AppCompatActivity() {
         listView.visibility = View.GONE
         logContainer.visibility = View.GONE
         scriptListView.visibility = View.VISIBLE
-        sourceBar.visibility = View.VISIBLE
-        btnRefreshSource.visibility = View.GONE
-        btnSort.visibility = View.GONE
+        sourceBar.visibility = View.GONE
         statsBar.visibility = View.GONE
     }
 
