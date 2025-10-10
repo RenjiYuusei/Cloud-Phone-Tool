@@ -9,8 +9,9 @@
 
 ### 🐛 Sửa lỗi
 - **Clear cache**: Sửa lỗi nút xóa cache không xóa hết - giờ đã xóa cả thư mục splits đã giải nén
-- **Log gọn gàng**: Loại bỏ các log ENV trùng lặp, giảm nhiễu trong nhật ký
-- **XAPK parsing**: Cải thiện logic giải nén và sắp xếp APK từ XAPK
+- **Log gọn gàng**: Loại bỏ các log không cần thiết (khởi động, tải nguồn, ENV trùng lặp)
+- **XAPK parsing**: Cải thiện logic giải nén - đọc đúng tất cả APK entries trong ZIP
+- **Debug logs**: Thêm log chi tiết từng file được giải nén để dễ debug
 
 ## [1.1.0] - 2025-09-30 (Update 2)
 

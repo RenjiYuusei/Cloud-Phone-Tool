@@ -158,8 +158,6 @@ class MainActivity : AppCompatActivity() {
         // Khởi tạo log với thông báo chào mừng
         logView.text = "" // Clear placeholder text
         log("=== Kasumi v1.1.1 ===")
-        log("Chào mừng! Ứng dụng đã khởi động.")
-        log("Đang tải danh sách ứng dụng...")
 
         loadItems()
         // Nạp preload từ nguồn mặc định (cố định)
@@ -167,7 +165,6 @@ class MainActivity : AppCompatActivity() {
             refreshPreloadedApps(initial = true)
             applyFilter("")
             updateStats()
-            log("Đã tải xong danh sách ứng dụng từ nguồn.")
         }
         updateCachedVersions()
         applyFilter(currentQuery)
@@ -328,12 +325,10 @@ class MainActivity : AppCompatActivity() {
             }
             updated++
         }
-        log("Đã nạp danh sách online: $updated mục")
     }
 
     private suspend fun fetchPreloadedAppsRemote(url: String): List<PreloadApp>? = withContext(Dispatchers.IO) {
         try {
-            logBg("Tải danh sách ứng dụng online từ: $url")
             val req = Request.Builder().url(url).header("User-Agent", "CloudPhoneTool/1.0").build()
             client.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) {
@@ -343,10 +338,11 @@ class MainActivity : AppCompatActivity() {
                 val body = resp.body?.string() ?: return@withContext null
                 // Tránh dùng TypeToken để không phụ thuộc generic signature khi minify
                 val arr: Array<PreloadApp> = Gson().fromJson(body, Array<PreloadApp>::class.java)
+                log("Đã tải ${arr.size} ứng dụng từ nguồn")
                 arr.toList()
             }
         } catch (e: Exception) {
-            logBg("Lỗi tải nguồn online: ${e.message}")
+            logBg("Lỗi tải nguồn: ${e.message}")
             null
         }
     }
@@ -589,43 +585,66 @@ class MainActivity : AppCompatActivity() {
         if (outDir.exists()) outDir.deleteRecursively()
         outDir.mkdirs()
         val results = mutableListOf<File>()
+        val seenNames = mutableSetOf<String>()
+        
         try {
             ZipInputStream(FileInputStream(packageFile)).use { zis ->
-                while (true) {
-                    val entry = zis.nextEntry ?: break
-                    // Bỏ qua thư mục và các file không phải APK
-                    if (entry.isDirectory || !entry.name.lowercase().endsWith(".apk")) {
-                        zis.closeEntry()
-                        continue
-                    }
-                    
-                    // Lấy tên file (không bao gồm đường dẫn)
-                    val fileName = entry.name.substringAfterLast('/')
-                    
-                    // XAPK: file chính thường là <package>.apk, không phải base.apk
-                    // APKS: có base.apk + split APKs
-                    val outFile = File(outDir, fileName)
-                    outFile.outputStream().use { out ->
-                        val buf = ByteArray(8 * 1024)
-                        while (true) {
-                            val r = zis.read(buf)
-                            if (r == -1) break
-                            out.write(buf, 0, r)
+                var entry = zis.nextEntry
+                while (entry != null) {
+                    try {
+                        // Bỏ qua thư mục
+                        if (entry.isDirectory) {
+                            entry = zis.nextEntry
+                            continue
                         }
-                        out.flush()
+                        
+                        val entryName = entry.name.lowercase()
+                        
+                        // Chỉ lấy file .apk, bỏ qua các file khác (icon.png, manifest.json, obb...)
+                        if (!entryName.endsWith(".apk")) {
+                            entry = zis.nextEntry
+                            continue
+                        }
+                        
+                        // Lấy tên file (không bao gồm đường dẫn)
+                        val fileName = entry.name.substringAfterLast('/')
+                        
+                        // Tránh trùng lặp
+                        if (seenNames.contains(fileName)) {
+                            entry = zis.nextEntry
+                            continue
+                        }
+                        seenNames.add(fileName)
+                        
+                        val outFile = File(outDir, fileName)
+                        outFile.parentFile?.mkdirs()
+                        
+                        FileOutputStream(outFile).use { out ->
+                            val buf = ByteArray(8 * 1024)
+                            var read: Int
+                            while (zis.read(buf).also { read = it } != -1) {
+                                out.write(buf, 0, read)
+                            }
+                            out.flush()
+                        }
+                        
+                        results.add(outFile)
+                        logBg("Giải nén: ${fileName} (${outFile.length()} bytes)")
+                    } catch (e: Exception) {
+                        logBg("Lỗi giải nén entry ${entry.name}: ${e.message}")
                     }
-                    results.add(outFile)
-                    zis.closeEntry()
+                    
+                    entry = zis.nextEntry
                 }
             }
         } catch (e: Exception) {
-            logBg("Lỗi giải nén file split: ${e.message}")
+            logBg("Lỗi giải nén file: ${e.message}")
         }
         
-        // Sắp xếp: base.apk hoặc file APK chính (tên package) trước, config/split sau
+        // Sắp xếp: base.apk hoặc file APK chính (tên package.apk) trước, config/split sau
         return results.sortedWith(compareBy(
-            { it.name != "base.apk" && !it.name.contains("com.") },  // APK chính lên đầu
-            { it.name.startsWith("config.") || it.name.startsWith("split_") },  // Config/split xuống sau
+            { !it.name.startsWith("base.") && !it.name.matches(Regex("^[a-z]+\\.[a-z]+\\.[a-z.]+\\.apk$")) },
+            { it.name.startsWith("config.") || it.name.startsWith("split_") },
             { it.name }
         ))
     }
@@ -797,13 +816,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadItems() {
-        log("Đang tải danh sách ứng dụng đã lưu...")
         val prefs = getSharedPreferences("apk_items", Context.MODE_PRIVATE)
         val json = prefs.getString("list", null)
         val loaded = ApkItem.fromJsonList(json)
         items.clear()
         items.addAll(loaded)
-        log("Đã tải ${items.size} ứng dụng từ bộ nhớ.")
     }
 
     private fun updateCachedVersions() {
